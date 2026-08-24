@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AVSTORE Admin - Login</title>
+<link rel="stylesheet" href="/admin/css/admin.css" />
+</head>
+<body class="login-body">
+  <main class="login-card">
+    <div class="login-logo">AV<span>STORE</span> <small>Admin</small></div>
+    <h1>Entrar no painel</h1>
+    <form id="login-form" class="login-form">
+      <label for="email">E-mail</label>
+      <input id="email" name="email" type="email" autocomplete="username" required />
+
+      <label for="password">Senha</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required />
+
+      <p id="login-error" class="error-message" hidden></p>
+
+      <button type="submit" id="login-submit" class="btn btn-primary btn-block">Entrar</button>
+    </form>
+    <a href="/" class="back-link">&larr; Voltar para a loja</a>
+  </main>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
+    import {
+      getAuth,
+      connectAuthEmulator,
+      onAuthStateChanged,
+      signInWithEmailAndPassword,
+    } from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js';
+    import { firebaseConfig, USE_FIREBASE_EMULATOR } from '/firebase-config.js';
+
+    const app = initializeApp(firebaseConfig);
+    const authClient = getAuth(app);
+    if (USE_FIREBASE_EMULATOR) {
+      connectAuthEmulator(authClient, 'http://127.0.0.1:9099', { disableWarnings: true });
+    }
+
+    const form = document.getElementById('login-form');
+    const submitBtn = document.getElementById('login-submit');
+    const errorEl = document.getElementById('login-error');
+
+    const ERROR_MESSAGES = {
+      'auth/invalid-credential': 'E-mail ou senha invalidos.',
+      'auth/invalid-email': 'E-mail invalido.',
+      'auth/user-not-found': 'E-mail ou senha invalidos.',
+      'auth/wrong-password': 'E-mail ou senha invalidos.',
+      'auth/too-many-requests': 'Muitas tentativas. Aguarde um pouco e tente novamente.',
+      'auth/network-request-failed': 'Falha de conexao. Verifique sua internet e tente novamente.',
+    };
+
+    function showError(message) {
+      errorEl.textContent = message;
+      errorEl.hidden = false;
+    }
+
+    // Se ja estiver logado, decide para onde ir checando a claim de admin
+    // no backend (evita mandar um usuario nao-admin direto pro dashboard).
+    onAuthStateChanged(authClient, async (user) => {
+      if (!user) return;
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) {
+          window.location.href = '/admin/dashboard.html';
+        }
+      } catch (err) {
+        // sem conexao com a API ainda; deixa o usuario tentar logar normalmente
+      }
+    });
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorEl.hidden = true;
+      submitBtn.disabled = true;
+
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+
+      try {
+        await signInWithEmailAndPassword(authClient, email, password);
+        window.location.href = '/admin/dashboard.html';
+      } catch (err) {
+        showError(ERROR_MESSAGES[err.code] || 'Nao foi possivel entrar. Tente novamente.');
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

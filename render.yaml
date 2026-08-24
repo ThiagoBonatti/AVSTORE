@@ -1,0 +1,26 @@
+# Blueprint do Render (https://render.com/docs/blueprint-spec).
+# Uso: no dashboard do Render, "New +" > "Blueprint" > selecione o
+# repositorio do AVSTORE. O Render le este arquivo e cria o Web Service
+# automaticamente, pedindo apenas para voce preencher as variaveis marcadas
+# com "sync: false" (nao ficam salvas no repositorio, sao secretas).
+#
+# Tambem funciona criar o Web Service manualmente pelo dashboard, sem usar
+# este arquivo — nesse caso configure Build/Start Command e as variaveis de
+# ambiente na aba do servico (ver README, secao "Deploy no Render").
+services:
+  - type: web
+    name: avstore
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 20.11.1
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: FIREBASE_STORAGE_BUCKET
+        sync: false

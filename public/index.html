@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AVSTORE - Loja Online</title>
+<link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="/" class="logo">AV<span>STORE</span></a>
+      <button id="cart-toggle" class="cart-toggle" aria-label="Abrir carrinho">
+        🛒 <span id="cart-count" class="cart-count">0</span>
+      </button>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="filters-bar" aria-label="Filtros de produtos">
+      <div class="filter-group">
+        <label for="filter-category">Categoria</label>
+        <select id="filter-category">
+          <option value="">Todas</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label for="filter-color">Cor</label>
+        <select id="filter-color">
+          <option value="">Todas</option>
+        </select>
+      </div>
+      <div class="filter-group filter-search">
+        <label for="filter-search">Buscar</label>
+        <input id="filter-search" type="search" placeholder="Buscar por nome ou codigo..." />
+      </div>
+    </section>
+
+    <section id="product-grid" class="product-grid" aria-live="polite"></section>
+
+    <p id="empty-state" class="empty-state" hidden>Nenhum produto encontrado com esses filtros.</p>
+    <p id="loading-state" class="loading-state" hidden>Carregando produtos...</p>
+
+    <div id="sentinel" class="sentinel" aria-hidden="true"></div>
+  </main>
+
+  <!-- Painel do carrinho -->
+  <aside id="cart-panel" class="cart-panel" aria-label="Carrinho de compras">
+    <div class="cart-panel-header">
+      <h2>Seu carrinho</h2>
+      <button id="cart-close" class="icon-btn" aria-label="Fechar carrinho">✕</button>
+    </div>
+    <div id="cart-items" class="cart-items"></div>
+    <p id="cart-empty" class="cart-empty">Seu carrinho esta vazio.</p>
+    <div class="cart-footer">
+      <div class="cart-total-row">
+        <span>Total</span>
+        <strong id="cart-total">R$ 0,00</strong>
+      </div>
+      <button id="cart-checkout" class="btn btn-primary btn-block">Finalizar pedido</button>
+      <button id="cart-clear" class="btn btn-ghost btn-block">Esvaziar carrinho</button>
+    </div>
+  </aside>
+  <div id="cart-overlay" class="cart-overlay"></div>
+
+  <!-- Modal de detalhe do produto -->
+  <div id="product-modal" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true">
+      <button id="modal-close" class="icon-btn modal-close" aria-label="Fechar">✕</button>
+      <div id="modal-content" class="modal-content"></div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>&copy; <span id="year"></span> AVSTORE. Todos os direitos reservados.</p>
+      <a href="/admin/login.html" class="admin-link">Area administrativa</a>
+    </div>
+  </footer>
+
+  <script src="/js/cart.js"></script>
+  <script src="/js/store.js"></script>
+</body>
+</html>
