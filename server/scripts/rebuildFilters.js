@@ -9,7 +9,7 @@
 // "limpar" categorias/cores que nao sao mais usadas por nenhum produto.
 //
 // Uso: node server/scripts/rebuildFilters.js
-require('dotenv').config();
+require('dotenv').config({ override: true });
 const { db } = require('../firebase');
 
 (async () => {

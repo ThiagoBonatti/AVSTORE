@@ -1,5 +1,5 @@
 const express = require('express');
-const { db, admin } = require('../firebase');
+const { db, FieldValue } = require('../firebase');
 const { requireAuth } = require('../middleware/auth');
 const { upload } = require('../middleware/upload');
 const { uploadProductImage, deleteProductImage } = require('../storage');
@@ -62,8 +62,8 @@ function validateFields(body, { partial = false } = {}) {
 async function updateFiltersMeta(category, color) {
   await filtersDocRef.set(
     {
-      categories: admin.firestore.FieldValue.arrayUnion(category),
-      colors: admin.firestore.FieldValue.arrayUnion(color),
+      categories: FieldValue.arrayUnion(category),
+      colors: FieldValue.arrayUnion(color),
     },
     { merge: true }
   );
@@ -179,8 +179,8 @@ router.post('/', requireAuth, upload.single('image'), async (req, res) => {
         imageUrl: uploadedImage.url,
         imagePath: uploadedImage.storagePath,
         searchKeywords: buildSearchKeywords(code, description),
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       });
     } catch (err) {
       await deleteProductImage(uploadedImage.storagePath);
@@ -232,7 +232,7 @@ router.put('/:code', requireAuth, upload.single('image'), async (req, res) => {
       size,
       price,
       searchKeywords: buildSearchKeywords(code, description),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     };
 
     let uploadedImage = null;

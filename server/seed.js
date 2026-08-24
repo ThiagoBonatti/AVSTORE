@@ -1,6 +1,6 @@
-require('dotenv').config();
+require('dotenv').config({ override: true });
 
-const { db, admin, auth } = require('./firebase');
+const { db, auth, FieldValue } = require('./firebase');
 const { uploadProductImage } = require('./storage');
 const { buildSearchKeywords } = require('./searchKeywords');
 
@@ -81,14 +81,14 @@ async function seedProducts() {
       imageUrl: url,
       imagePath: storagePath,
       searchKeywords: buildSearchKeywords(p.code, p.description),
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     });
 
     await filtersDocRef.set(
       {
-        categories: admin.firestore.FieldValue.arrayUnion(p.category),
-        colors: admin.firestore.FieldValue.arrayUnion(p.color),
+        categories: FieldValue.arrayUnion(p.category),
+        colors: FieldValue.arrayUnion(p.color),
       },
       { merge: true }
     );
