@@ -14,6 +14,29 @@ const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 const { getAuth } = require('firebase-admin/auth');
 
+// Normaliza a chave privada vinda de uma variavel de ambiente. Dependendo de
+// como o valor foi colado/gerado (Windows, editores diferentes, paineis como
+// o do Render que "explodem" um JSON colado em variaveis separadas), a quebra
+// de linha pode chegar de formas diferentes:
+//   - escapada como texto literal "\n" (dois caracteres: barra invertida + n)
+//   - escapada como "\r\n"
+//   - já como quebra de linha real, mas em CRLF (\r\n) em vez de LF (\n)
+// O decodificador de chave do Node (OpenSSL) exige LF puro, então normalizamos
+// tudo para "\n" antes de usar. Também removemos aspas extras que às vezes
+// sobram de um copiar/colar malfeito e espaços/linhas em branco nas pontas.
+function normalizePrivateKey(raw) {
+  let key = raw.trim();
+  if (key.startsWith('"') && key.endsWith('"')) {
+    key = key.slice(1, -1);
+  }
+  key = key
+    .replace(/\\r\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+  return key.trim() + '\n';
+}
+
 // Resolve as credenciais do Firebase Admin SDK a partir de uma das
 // estrategias abaixo (nessa ordem de prioridade). Veja o README para
 // instrucoes de como gerar cada uma no console do Firebase.
@@ -40,8 +63,7 @@ function loadCredential() {
     return cert({
       projectId: process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      // Em arquivos .env a quebra de linha da chave privada costuma vir escapada como \n
-      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      privateKey: normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY),
     });
   }
 
