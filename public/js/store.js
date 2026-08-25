@@ -7,22 +7,15 @@
   const colorSelect = document.getElementById('filter-color');
   const searchInput = document.getElementById('filter-search');
 
-  const cartToggle = document.getElementById('cart-toggle');
-  const cartPanel = document.getElementById('cart-panel');
-  const cartOverlay = document.getElementById('cart-overlay');
-  const cartClose = document.getElementById('cart-close');
-  const cartItemsEl = document.getElementById('cart-items');
-  const cartEmptyEl = document.getElementById('cart-empty');
-  const cartTotalEl = document.getElementById('cart-total');
-  const cartCountEl = document.getElementById('cart-count');
-  const cartClearBtn = document.getElementById('cart-clear');
-  const cartCheckoutBtn = document.getElementById('cart-checkout');
-
   const modal = document.getElementById('product-modal');
   const modalContent = document.getElementById('modal-content');
   const modalClose = document.getElementById('modal-close');
 
   document.getElementById('year').textContent = new Date().getFullYear();
+
+  // Numero (com DDI 55 + DDD) para onde o botao "Comprar" envia a mensagem
+  // pelo WhatsApp. Formato exigido pelo link wa.me: apenas digitos.
+  const WHATSAPP_NUMBER = '5534996575057';
 
   let state = {
     cursor: null,
@@ -35,6 +28,54 @@
   };
 
   let searchDebounce = null;
+
+  function formatBRL(value) {
+    return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  }
+
+  // -------------------- Cores conhecidas -> amostra visual --------------------
+  // Mapeia nomes de cor comuns (em portugues) para um tom aproximado, usado
+  // para desenhar a bolinha de cor clicavel em cada produto. Cores nao
+  // reconhecidas caem no fallback (chip com o nome escrito).
+  const COLOR_HEX = {
+    branco: '#ffffff',
+    'off white': '#f5f5f0',
+    preto: '#111111',
+    cinza: '#9ca3af',
+    chumbo: '#4b5563',
+    azul: '#2563eb',
+    'azul marinho': '#1e3a5f',
+    marinho: '#1e3a5f',
+    'azul claro': '#60a5fa',
+    vermelho: '#dc2626',
+    verde: '#16a34a',
+    'verde militar': '#4d5d3a',
+    amarelo: '#f1c40f',
+    laranja: '#f97316',
+    roxo: '#8b5cf6',
+    lilas: '#c4b5fd',
+    rosa: '#ec4899',
+    marrom: '#78350f',
+    bege: '#e8dcc8',
+    caqui: '#8a7f5e',
+    dourado: '#caa43d',
+    prateado: '#c0c0c0',
+    vinho: '#7f1d3d',
+    creme: '#f5f0e1',
+    nude: '#e3c9a8',
+  };
+
+  function normalizeColorKey(name) {
+    return String(name || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim();
+  }
+
+  function colorToHex(name) {
+    return COLOR_HEX[normalizeColorKey(name)] || null;
+  }
 
   // -------------------- Carregamento de filtros --------------------
   async function loadFilters() {
@@ -100,35 +141,112 @@
     }
   }
 
+  // -------------------- Amostras de cor + selecao de tamanho --------------------
+  // Renderiza uma bolinha (ou chip, se a cor nao for reconhecida) por
+  // variacao dentro de "container". Clicar numa amostra troca a imagem
+  // exibida e a lista de tamanhos disponiveis para a cor escolhida.
+  function renderSwatches(container, variants, selectedIndex, onSelect) {
+    container.innerHTML = '';
+    if (variants.length <= 1) return; // uma unica cor nao precisa de seletor
+
+    variants.forEach((v, index) => {
+      const hex = colorToHex(v.color);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'color-swatch' + (hex ? '' : ' color-swatch-text') + (index === selectedIndex ? ' selected' : '');
+      btn.title = v.color;
+      btn.setAttribute('aria-label', `Cor ${v.color}`);
+      if (hex) {
+        btn.style.background = hex;
+      } else {
+        btn.textContent = v.color.slice(0, 2).toUpperCase();
+      }
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onSelect(index);
+      });
+      container.appendChild(btn);
+    });
+  }
+
+  function fillSizeSelect(select, sizes, selected) {
+    select.innerHTML = '';
+    sizes.forEach((s) => {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      select.appendChild(opt);
+    });
+    if (selected && sizes.includes(selected)) select.value = selected;
+  }
+
+  function buildWhatsAppUrl(product, variant, size) {
+    const lines = [
+      'Ola! Tenho interesse neste produto da AVSTORE:',
+      `${product.description} (Codigo: ${product.code})`,
+      `Cor: ${variant.color}`,
+      `Tamanho: ${size}`,
+      `Valor: ${formatBRL(product.price)}`,
+    ];
+    const text = encodeURIComponent(lines.join('\n'));
+    return `https://wa.me/${WHATSAPP_NUMBER}?text=${text}`;
+  }
+
   function renderProductCard(product) {
+    const variants = Array.isArray(product.variants) && product.variants.length ? product.variants : [
+      { color: '', sizes: [], imageUrl: product.imageUrl },
+    ];
+
+    let selectedIndex = 0;
+
     const card = document.createElement('article');
     card.className = 'product-card';
     card.innerHTML = `
-      <img src="${product.imageUrl || ''}" alt="${escapeHtml(product.description)}" loading="lazy" />
+      <img data-field="image" src="${variants[0].imageUrl || ''}" alt="${escapeHtml(product.description)}" loading="lazy" />
       <div class="product-card-body">
         <div class="product-card-tags">
           <span>${escapeHtml(product.category)}</span>
-          <span>&middot;</span>
-          <span>${escapeHtml(product.color)}</span>
         </div>
         <h3>${escapeHtml(product.description)}</h3>
-        <span class="size-tag">Tamanho: ${escapeHtml(product.size)}</span>
+        <div class="color-swatches" data-field="swatches"></div>
+        <label class="size-select-label">
+          Tamanho
+          <select class="size-select" data-field="size-select"></select>
+        </label>
         <span class="price">${formatBRL(product.price)}</span>
       </div>
       <div class="product-card-actions">
-        <button class="btn btn-primary btn-block" data-action="add">Adicionar ao carrinho</button>
+        <button class="btn btn-primary btn-block" data-action="buy">Comprar</button>
       </div>
     `;
 
+    const imageEl = card.querySelector('[data-field="image"]');
+    const swatchesEl = card.querySelector('[data-field="swatches"]');
+    const sizeSelectEl = card.querySelector('[data-field="size-select"]');
+
+    function selectVariant(index) {
+      selectedIndex = index;
+      const v = variants[index];
+      imageEl.src = v.imageUrl || '';
+      fillSizeSelect(sizeSelectEl, v.sizes, v.sizes[0]);
+      renderSwatches(swatchesEl, variants, selectedIndex, selectVariant);
+    }
+
+    fillSizeSelect(sizeSelectEl, variants[0].sizes, variants[0].sizes[0]);
+    renderSwatches(swatchesEl, variants, selectedIndex, selectVariant);
+
     card.addEventListener('click', (e) => {
-      if (e.target.closest('[data-action="add"]')) return;
+      if (e.target.closest('[data-action="buy"]') || e.target.closest('.color-swatch') || e.target.closest('.size-select')) {
+        return;
+      }
       openProductModal(product);
     });
 
-    card.querySelector('[data-action="add"]').addEventListener('click', (e) => {
+    card.querySelector('[data-action="buy"]').addEventListener('click', (e) => {
       e.stopPropagation();
-      Cart.add(product, 1);
-      showToast(`"${product.description}" adicionado ao carrinho.`);
+      const variant = variants[selectedIndex];
+      const size = sizeSelectEl.value || variant.sizes[0] || '';
+      window.open(buildWhatsAppUrl(product, variant, size), '_blank', 'noopener');
     });
 
     return card;
@@ -170,25 +288,50 @@
 
   // -------------------- Modal de produto --------------------
   function openProductModal(product) {
+    const variants = Array.isArray(product.variants) && product.variants.length ? product.variants : [
+      { color: '', sizes: [], imageUrl: product.imageUrl },
+    ];
+    let selectedIndex = 0;
+
     modalContent.innerHTML = `
-      <img src="${product.imageUrl || ''}" alt="${escapeHtml(product.description)}" />
+      <img data-field="image" src="${variants[0].imageUrl || ''}" alt="${escapeHtml(product.description)}" />
       <div class="modal-info">
         <h2>${escapeHtml(product.description)}</h2>
         <span class="modal-price">${formatBRL(product.price)}</span>
         <div class="modal-meta">
           <span>Codigo: ${escapeHtml(product.code)}</span>
           <span>Categoria: ${escapeHtml(product.category)}</span>
-          <span>Cor: ${escapeHtml(product.color)}</span>
-          <span>Tamanho: ${escapeHtml(product.size)}</span>
         </div>
-        <button class="btn btn-primary" data-action="add-modal">Adicionar ao carrinho</button>
+        <div class="color-swatches" data-field="swatches"></div>
+        <label class="size-select-label">
+          Tamanho
+          <select class="size-select" data-field="size-select"></select>
+        </label>
+        <button class="btn btn-primary" data-action="buy-modal">Comprar</button>
       </div>
     `;
-    modalContent.querySelector('[data-action="add-modal"]').addEventListener('click', () => {
-      Cart.add(product, 1);
-      showToast(`"${product.description}" adicionado ao carrinho.`);
-      closeModal();
+
+    const imageEl = modalContent.querySelector('[data-field="image"]');
+    const swatchesEl = modalContent.querySelector('[data-field="swatches"]');
+    const sizeSelectEl = modalContent.querySelector('[data-field="size-select"]');
+
+    function selectVariant(index) {
+      selectedIndex = index;
+      const v = variants[index];
+      imageEl.src = v.imageUrl || '';
+      fillSizeSelect(sizeSelectEl, v.sizes, v.sizes[0]);
+      renderSwatches(swatchesEl, variants, selectedIndex, selectVariant);
+    }
+
+    fillSizeSelect(sizeSelectEl, variants[0].sizes, variants[0].sizes[0]);
+    renderSwatches(swatchesEl, variants, selectedIndex, selectVariant);
+
+    modalContent.querySelector('[data-action="buy-modal"]').addEventListener('click', () => {
+      const variant = variants[selectedIndex];
+      const size = sizeSelectEl.value || variant.sizes[0] || '';
+      window.open(buildWhatsAppUrl(product, variant, size), '_blank', 'noopener');
     });
+
     modal.hidden = false;
   }
 
@@ -202,88 +345,7 @@
     if (e.target === modal) closeModal();
   });
 
-  // -------------------- Carrinho (painel lateral) --------------------
-  function renderCart() {
-    const items = Cart.items;
-    cartItemsEl.innerHTML = '';
-    cartEmptyEl.hidden = items.length > 0;
-
-    items.forEach((item) => {
-      const row = document.createElement('div');
-      row.className = 'cart-item';
-      row.innerHTML = `
-        <img src="${item.imageUrl || ''}" alt="${escapeHtml(item.description)}" />
-        <div class="cart-item-info">
-          <h4>${escapeHtml(item.description)}</h4>
-          <span class="cart-item-meta">${escapeHtml(item.color)} &middot; ${escapeHtml(item.size)} &middot; ${formatBRL(item.price)}</span>
-          <div class="cart-item-controls">
-            <button class="qty-btn" data-action="dec">-</button>
-            <span>${item.qty}</span>
-            <button class="qty-btn" data-action="inc">+</button>
-            <button class="cart-item-remove" data-action="remove">Remover</button>
-          </div>
-        </div>
-      `;
-      row.querySelector('[data-action="dec"]').addEventListener('click', () =>
-        Cart.updateQty(item.code, item.qty - 1)
-      );
-      row.querySelector('[data-action="inc"]').addEventListener('click', () =>
-        Cart.updateQty(item.code, item.qty + 1)
-      );
-      row.querySelector('[data-action="remove"]').addEventListener('click', () => Cart.remove(item.code));
-      cartItemsEl.appendChild(row);
-    });
-
-    cartTotalEl.textContent = formatBRL(Cart.totalPrice());
-    cartCountEl.textContent = Cart.totalItems();
-  }
-
-  function openCart() {
-    cartPanel.classList.add('open');
-    cartOverlay.classList.add('visible');
-  }
-  function closeCart() {
-    cartPanel.classList.remove('open');
-    cartOverlay.classList.remove('visible');
-  }
-
-  cartToggle.addEventListener('click', openCart);
-  cartClose.addEventListener('click', closeCart);
-  cartOverlay.addEventListener('click', closeCart);
-
-  cartClearBtn.addEventListener('click', () => {
-    if (confirm('Deseja esvaziar o carrinho?')) Cart.clear();
-  });
-
-  cartCheckoutBtn.addEventListener('click', () => {
-    if (Cart.items.length === 0) return;
-    alert(
-      `Pedido simulado no valor de ${formatBRL(Cart.totalPrice())}.\n` +
-        'Integre aqui seu metodo de pagamento/checkout preferido.'
-    );
-    Cart.clear();
-    closeCart();
-  });
-
-  document.addEventListener('cart:changed', renderCart);
-
-  // -------------------- Toast --------------------
-  let toastTimeout = null;
-  function showToast(message) {
-    let toast = document.querySelector('.toast');
-    if (!toast) {
-      toast = document.createElement('div');
-      toast.className = 'toast';
-      document.body.appendChild(toast);
-    }
-    toast.textContent = message;
-    toast.classList.add('visible');
-    clearTimeout(toastTimeout);
-    toastTimeout = setTimeout(() => toast.classList.remove('visible'), 2200);
-  }
-
   // -------------------- Init --------------------
   loadFilters();
   loadProducts({ reset: true });
-  renderCart();
 })();

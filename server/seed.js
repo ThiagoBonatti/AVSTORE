@@ -41,19 +41,82 @@ function makePlaceholderSvg(label, bgColor) {
 </svg>`;
 }
 
+// Cada produto de exemplo ja nasce com 1-2 variacoes de cor, cada uma com
+// seus proprios tamanhos e sua propria imagem placeholder — para refletir o
+// novo modelo de dados (variants) usado pelo cadastro de produtos.
 const sampleProducts = [
-  { code: 'CAM-001', description: 'Camiseta Basica Algodao', category: 'Camisetas', color: 'Branco', size: 'M', price: 59.9, bg: '#2c3e50' },
-  { code: 'CAM-002', description: 'Camiseta Basica Algodao', category: 'Camisetas', color: 'Preto', size: 'G', price: 59.9, bg: '#1c1c1c' },
-  { code: 'CAM-003', description: 'Camiseta Estampada Vintage', category: 'Camisetas', color: 'Azul', size: 'P', price: 69.9, bg: '#2980b9' },
-  { code: 'CAL-001', description: 'Calca Jeans Slim', category: 'Calcas', color: 'Azul', size: '40', price: 149.9, bg: '#34495e' },
-  { code: 'CAL-002', description: 'Calca Jogger Moletom', category: 'Calcas', color: 'Cinza', size: 'M', price: 119.9, bg: '#7f8c8d' },
-  { code: 'CAL-003', description: 'Calca Sarja Reta', category: 'Calcas', color: 'Preto', size: '42', price: 139.9, bg: '#111111' },
-  { code: 'JAQ-001', description: 'Jaqueta Corta-Vento', category: 'Jaquetas', color: 'Verde', size: 'G', price: 199.9, bg: '#27ae60' },
-  { code: 'JAQ-002', description: 'Jaqueta Jeans', category: 'Jaquetas', color: 'Azul', size: 'M', price: 219.9, bg: '#3b6ea5' },
-  { code: 'VES-001', description: 'Vestido Midi Estampado', category: 'Vestidos', color: 'Vermelho', size: 'P', price: 179.9, bg: '#c0392b' },
-  { code: 'VES-002', description: 'Vestido Longo Verao', category: 'Vestidos', color: 'Amarelo', size: 'M', price: 189.9, bg: '#f1c40f' },
-  { code: 'TEN-001', description: 'Tenis Casual Urbano', category: 'Calcados', color: 'Branco', size: '41', price: 249.9, bg: '#95a5a6' },
-  { code: 'TEN-002', description: 'Tenis Esportivo Corrida', category: 'Calcados', color: 'Preto', size: '42', price: 279.9, bg: '#000000' },
+  {
+    code: 'CAM-001',
+    description: 'Camiseta Basica Algodao',
+    category: 'Camisetas',
+    price: 59.9,
+    variants: [
+      { id: 'branco', color: 'Branco', sizes: ['P', 'M', 'G'], bg: '#2c3e50' },
+      { id: 'preto', color: 'Preto', sizes: ['M', 'G', 'GG'], bg: '#1c1c1c' },
+    ],
+  },
+  {
+    code: 'CAM-003',
+    description: 'Camiseta Estampada Vintage',
+    category: 'Camisetas',
+    price: 69.9,
+    variants: [{ id: 'azul', color: 'Azul', sizes: ['P', 'M'], bg: '#2980b9' }],
+  },
+  {
+    code: 'CAL-001',
+    description: 'Calca Jeans Slim',
+    category: 'Calcas',
+    price: 149.9,
+    variants: [{ id: 'azul', color: 'Azul', sizes: ['38', '40', '42'], bg: '#34495e' }],
+  },
+  {
+    code: 'CAL-002',
+    description: 'Calca Jogger Moletom',
+    category: 'Calcas',
+    price: 119.9,
+    variants: [
+      { id: 'cinza', color: 'Cinza', sizes: ['P', 'M', 'G'], bg: '#7f8c8d' },
+      { id: 'preto', color: 'Preto', sizes: ['M', 'G'], bg: '#111111' },
+    ],
+  },
+  {
+    code: 'JAQ-001',
+    description: 'Jaqueta Corta-Vento',
+    category: 'Jaquetas',
+    price: 199.9,
+    variants: [{ id: 'verde', color: 'Verde', sizes: ['G', 'GG'], bg: '#27ae60' }],
+  },
+  {
+    code: 'JAQ-002',
+    description: 'Jaqueta Jeans',
+    category: 'Jaquetas',
+    price: 219.9,
+    variants: [{ id: 'azul', color: 'Azul', sizes: ['M'], bg: '#3b6ea5' }],
+  },
+  {
+    code: 'VES-001',
+    description: 'Vestido Midi Estampado',
+    category: 'Vestidos',
+    price: 179.9,
+    variants: [{ id: 'vermelho', color: 'Vermelho', sizes: ['P', 'M'], bg: '#c0392b' }],
+  },
+  {
+    code: 'VES-002',
+    description: 'Vestido Longo Verao',
+    category: 'Vestidos',
+    price: 189.9,
+    variants: [{ id: 'amarelo', color: 'Amarelo', sizes: ['M'], bg: '#f1c40f' }],
+  },
+  {
+    code: 'TEN-001',
+    description: 'Tenis Casual Urbano',
+    category: 'Calcados',
+    price: 249.9,
+    variants: [
+      { id: 'branco', color: 'Branco', sizes: ['39', '40', '41'], bg: '#95a5a6' },
+      { id: 'preto', color: 'Preto', sizes: ['41', '42'], bg: '#000000' },
+    ],
+  },
 ];
 
 async function seedProducts() {
@@ -64,22 +127,28 @@ async function seedProducts() {
     const existing = await docRef.get();
     if (existing.exists) continue;
 
-    const svg = makePlaceholderSvg(p.description, p.bg);
-    const fakeFile = {
-      buffer: Buffer.from(svg, 'utf8'),
-      mimetype: 'image/svg+xml',
-      originalname: `${p.code}.svg`,
-    };
-    const { url, storagePath } = await uploadProductImage(p.code, fakeFile);
+    const variants = [];
+    for (const v of p.variants) {
+      const svg = makePlaceholderSvg(`${p.description} - ${v.color}`, v.bg);
+      const fakeFile = {
+        buffer: Buffer.from(svg, 'utf8'),
+        mimetype: 'image/svg+xml',
+        originalname: `${p.code}-${v.id}.svg`,
+      };
+      const { url, storagePath } = await uploadProductImage(p.code, v.id, fakeFile);
+      variants.push({ id: v.id, color: v.color, sizes: v.sizes, imageUrl: url, imagePath: storagePath });
+    }
+
+    const colors = variants.map((v) => v.color);
+    const sizes = [...new Set(variants.flatMap((v) => v.sizes))];
 
     await docRef.create({
       description: p.description,
       category: p.category,
-      color: p.color,
-      size: p.size,
       price: p.price,
-      imageUrl: url,
-      imagePath: storagePath,
+      variants,
+      colors,
+      sizes,
       searchKeywords: buildSearchKeywords(p.code, p.description),
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
@@ -88,7 +157,7 @@ async function seedProducts() {
     await filtersDocRef.set(
       {
         categories: FieldValue.arrayUnion(p.category),
-        colors: FieldValue.arrayUnion(p.color),
+        colors: FieldValue.arrayUnion(...colors),
       },
       { merge: true }
     );

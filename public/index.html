@@ -4,15 +4,14 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>AVSTORE - Loja Online</title>
+<link rel="icon" type="image/png" href="/img/favicon-32.png" />
+<link rel="apple-touch-icon" href="/img/favicon-180.png" />
 <link rel="stylesheet" href="/css/style.css" />
 </head>
 <body>
   <header class="site-header">
     <div class="container header-inner">
-      <a href="/" class="logo">AV<span>STORE</span></a>
-      <button id="cart-toggle" class="cart-toggle" aria-label="Abrir carrinho">
-        🛒 <span id="cart-count" class="cart-count">0</span>
-      </button>
+      <a href="/" class="logo"><img src="/img/logo.png" alt="AVSTORE" class="logo-img" /></a>
     </div>
   </header>
 
@@ -44,25 +43,6 @@
     <div id="sentinel" class="sentinel" aria-hidden="true"></div>
   </main>
 
-  <!-- Painel do carrinho -->
-  <aside id="cart-panel" class="cart-panel" aria-label="Carrinho de compras">
-    <div class="cart-panel-header">
-      <h2>Seu carrinho</h2>
-      <button id="cart-close" class="icon-btn" aria-label="Fechar carrinho">✕</button>
-    </div>
-    <div id="cart-items" class="cart-items"></div>
-    <p id="cart-empty" class="cart-empty">Seu carrinho esta vazio.</p>
-    <div class="cart-footer">
-      <div class="cart-total-row">
-        <span>Total</span>
-        <strong id="cart-total">R$ 0,00</strong>
-      </div>
-      <button id="cart-checkout" class="btn btn-primary btn-block">Finalizar pedido</button>
-      <button id="cart-clear" class="btn btn-ghost btn-block">Esvaziar carrinho</button>
-    </div>
-  </aside>
-  <div id="cart-overlay" class="cart-overlay"></div>
-
   <!-- Modal de detalhe do produto -->
   <div id="product-modal" class="modal-overlay" hidden>
     <div class="modal" role="dialog" aria-modal="true">
@@ -78,7 +58,6 @@
     </div>
   </footer>
 
-  <script src="/js/cart.js"></script>
   <script src="/js/store.js"></script>
 </body>
 </html>

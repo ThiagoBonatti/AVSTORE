@@ -10,14 +10,16 @@ const EXT_BY_MIME = {
   'image/svg+xml': '.svg',
 };
 
-// Envia a imagem de um produto para o Firebase Storage e retorna uma URL
-// publica de download (com token, no mesmo formato usado pelo SDK do
-// Firebase). O token concede acesso de leitura ao arquivo mesmo com as
-// Storage Rules bloqueando leitura/escrita para clientes (ver storage.rules).
-async function uploadProductImage(code, file) {
+// Envia a imagem de uma variacao (cor) de um produto para o Firebase Storage
+// e retorna uma URL publica de download (com token, no mesmo formato usado
+// pelo SDK do Firebase). O token concede acesso de leitura ao arquivo mesmo
+// com as Storage Rules bloqueando leitura/escrita para clientes (ver
+// storage.rules). "variantId" identifica a variacao (cor) dentro do produto,
+// ja que agora cada cor tem sua propria imagem.
+async function uploadProductImage(code, variantId, file) {
   const ext = path.extname(file.originalname || '').toLowerCase() || EXT_BY_MIME[file.mimetype] || '';
   const token = crypto.randomUUID();
-  const storagePath = `products/${code}-${Date.now()}${ext}`;
+  const storagePath = `products/${code}-${variantId}-${Date.now()}${ext}`;
   const blob = bucket.file(storagePath);
 
   await blob.save(file.buffer, {

@@ -4,11 +4,13 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>AVSTORE Admin - Painel</title>
+<link rel="icon" type="image/png" href="/img/favicon-32.png" />
+<link rel="apple-touch-icon" href="/img/favicon-180.png" />
 <link rel="stylesheet" href="/admin/css/admin.css" />
 </head>
 <body>
   <header class="admin-header">
-    <div class="admin-logo">AV<span>STORE</span> Admin</div>
+    <div class="admin-logo"><img src="/img/logo.png" alt="AVSTORE" class="admin-logo-img" /><span>Admin</span></div>
     <div class="admin-header-actions">
       <span class="admin-username" id="admin-username"></span>
       <a href="/" class="btn btn-ghost btn-sm">Ver loja</a>
@@ -37,26 +39,38 @@
         </label>
 
         <label>
-          Cor
-          <input type="text" id="color" name="color" list="color-list" required />
-          <datalist id="color-list"></datalist>
-        </label>
-
-        <label>
-          Tamanho
-          <input type="text" id="size" name="size" required />
-        </label>
-
-        <label>
           Preco (R$)
           <input type="number" id="price" name="price" min="0" step="0.01" required />
         </label>
 
-        <label class="full">
-          Imagem <span id="image-required-hint">(obrigatoria)</span>
-          <input type="file" id="image" name="image" accept="image/png,image/jpeg,image/webp,image/gif" />
-          <img id="image-preview" class="image-preview" alt="Previa da imagem" />
-        </label>
+        <div class="full variants-section">
+          <div class="variants-section-header">
+            <span>Cores, tamanhos e imagens</span>
+            <button type="button" id="add-variant-btn" class="btn btn-ghost btn-sm">+ Adicionar cor</button>
+          </div>
+          <p class="variants-hint">Cadastre cada cor do produto separadamente, com os tamanhos disponiveis e uma imagem propria. Na loja, ao clicar na cor a imagem exibida muda para a imagem daquela cor.</p>
+          <div id="variants-list" class="variants-list"></div>
+          <datalist id="color-list"></datalist>
+        </div>
+
+        <template id="variant-row-template">
+          <div class="variant-row" data-variant-row>
+            <button type="button" class="icon-btn variant-remove" data-action="remove-variant" aria-label="Remover esta cor">✕</button>
+            <label>
+              Cor
+              <input type="text" data-field="color" list="color-list" required placeholder="Ex.: Preto" />
+            </label>
+            <label>
+              Tamanhos <small>(separados por virgula)</small>
+              <input type="text" data-field="sizes" required placeholder="Ex.: P, M, G" />
+            </label>
+            <label class="full">
+              Imagem desta cor <span data-field="image-hint">(obrigatoria)</span>
+              <input type="file" data-field="image" accept="image/png,image/jpeg,image/webp,image/gif" />
+              <img class="image-preview" data-field="image-preview" alt="Previa da imagem desta cor" />
+            </label>
+          </div>
+        </template>
 
         <p id="form-message" class="form-message" hidden></p>
 
@@ -77,8 +91,8 @@
               <th>Codigo</th>
               <th>Descricao</th>
               <th>Categoria</th>
-              <th>Cor</th>
-              <th>Tamanho</th>
+              <th>Cores</th>
+              <th>Tamanhos</th>
               <th>Preco</th>
               <th>Criado em</th>
               <th>Acoes</th>

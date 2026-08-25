@@ -14,16 +14,32 @@ const filtersDocRef = db.collection('meta').doc('catalog');
 // nao pode conter "/" (separador de caminho de documentos).
 const CODE_PATTERN = /^[A-Za-z0-9._-]+$/;
 
+// Cada produto pode ter varias variacoes (cores), e cada variacao pode ter
+// varios tamanhos e sua propria imagem. O campo de arquivo de cada variacao
+// vem do formulario com o nome "variantImage_<id>" (ver public/admin/js/admin.js).
+function variantImageFieldName(variantId) {
+  return `variantImage_${variantId}`;
+}
+
 function serializeProduct(doc) {
   const data = doc.data() || {};
+  const variants = Array.isArray(data.variants) ? data.variants : [];
   return {
     code: doc.id,
     description: data.description,
     category: data.category,
-    color: data.color,
-    size: data.size,
     price: data.price,
-    imageUrl: data.imageUrl || null,
+    variants: variants.map((v) => ({
+      id: v.id,
+      color: v.color,
+      sizes: Array.isArray(v.sizes) ? v.sizes : [],
+      imageUrl: v.imageUrl || null,
+    })),
+    colors: Array.isArray(data.colors) ? data.colors : [],
+    sizes: Array.isArray(data.sizes) ? data.sizes : [],
+    // Mantidos por compatibilidade com quem ainda espera uma imagem/cor
+    // unica no topo do objeto (ex.: thumbnail da primeira variacao).
+    imageUrl: variants[0]?.imageUrl || null,
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
   };
@@ -35,8 +51,8 @@ function toIso(value) {
   return value;
 }
 
-function validateFields(body, { partial = false } = {}) {
-  const required = ['code', 'description', 'category', 'color', 'size', 'price'];
+function validateBaseFields(body, { partial = false } = {}) {
+  const required = ['code', 'description', 'category', 'price'];
   const errors = [];
 
   for (const field of required) {
@@ -59,11 +75,60 @@ function validateFields(body, { partial = false } = {}) {
   return errors;
 }
 
-async function updateFiltersMeta(category, color) {
+// Analisa o campo "variants" (JSON enviado pelo formulario) e retorna a
+// lista de variacoes ja validada, ou lanca um erro com a mensagem a exibir.
+function parseVariants(raw) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error('Nao foi possivel interpretar as variacoes de cor/tamanho enviadas.');
+  }
+
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error('Cadastre ao menos uma variacao de cor.');
+  }
+
+  const seenColors = new Set();
+  const variants = [];
+
+  for (const raw_v of parsed) {
+    const id = String(raw_v.id || '').trim();
+    const color = String(raw_v.color || '').trim();
+    const sizes = Array.isArray(raw_v.sizes)
+      ? raw_v.sizes.map((s) => String(s).trim()).filter(Boolean)
+      : [];
+
+    if (!id) throw new Error('Variacao invalida (identificador ausente).');
+    if (!color) throw new Error('Informe a cor de todas as variacoes cadastradas.');
+    if (sizes.length === 0) throw new Error(`Informe ao menos um tamanho para a cor "${color}".`);
+
+    const colorKey = normalize(color);
+    if (seenColors.has(colorKey)) throw new Error(`A cor "${color}" foi informada mais de uma vez.`);
+    seenColors.add(colorKey);
+
+    variants.push({ id, color, sizes });
+  }
+
+  return variants;
+}
+
+function filesByFieldName(files) {
+  const map = new Map();
+  for (const file of files || []) map.set(file.fieldname, file);
+  return map;
+}
+
+async function updateFiltersMeta(category, colors) {
+  const uniqueColors = [...new Set((colors || []).filter(Boolean))];
+  if (uniqueColors.length === 0) {
+    await filtersDocRef.set({ categories: FieldValue.arrayUnion(category) }, { merge: true });
+    return;
+  }
   await filtersDocRef.set(
     {
       categories: FieldValue.arrayUnion(category),
-      colors: FieldValue.arrayUnion(color),
+      colors: FieldValue.arrayUnion(...uniqueColors),
     },
     { merge: true }
   );
@@ -106,14 +171,17 @@ router.get('/', async (req, res) => {
       const snapshot = await productsRef.where('searchKeywords', 'array-contains', search).limit(50).get();
       let items = snapshot.docs.map(serializeProduct);
       if (req.query.category) items = items.filter((p) => p.category === req.query.category);
-      if (req.query.color) items = items.filter((p) => p.color === req.query.color);
+      if (req.query.color) items = items.filter((p) => p.colors.includes(req.query.color));
       items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
       return res.json({ items, limit, hasMore: false, nextCursor: null });
     }
 
     let query = productsRef;
     if (req.query.category) query = query.where('category', '==', req.query.category);
-    if (req.query.color) query = query.where('color', '==', req.query.color);
+    // "colors" e um array com as cores de todas as variacoes do produto,
+    // mantido junto de "variants" para permitir esse filtro (o Firestore
+    // nao consegue fazer array-contains dentro de um array de objetos).
+    if (req.query.color) query = query.where('colors', 'array-contains', req.query.color);
     query = query.orderBy('createdAt', 'desc');
 
     if (req.query.cursor) {
@@ -151,46 +219,70 @@ router.get('/:code', async (req, res) => {
 
 // -------------------- ROTAS ADMINISTRATIVAS (protegidas) --------------------
 
-// POST /api/products - cria um novo produto
-router.post('/', requireAuth, upload.single('image'), async (req, res) => {
-  const errors = validateFields(req.body);
-  if (!req.file) errors.push('A imagem do produto e obrigatoria.');
+// POST /api/products - cria um novo produto com uma ou mais variacoes de
+// cor/tamanho, cada uma com sua propria imagem.
+router.post('/', requireAuth, upload.any(), async (req, res) => {
+  const errors = validateBaseFields(req.body);
+
+  let variants;
+  try {
+    variants = parseVariants(req.body.variants);
+  } catch (err) {
+    errors.push(err.message);
+  }
+
+  if (variants) {
+    const filesMap = filesByFieldName(req.files);
+    for (const v of variants) {
+      if (!filesMap.has(variantImageFieldName(v.id))) {
+        errors.push(`Envie uma imagem para a cor "${v.color}".`);
+      }
+    }
+  }
+
   if (errors.length) return res.status(400).json({ error: errors.join(' ') });
 
   const code = String(req.body.code).trim();
   const description = req.body.description.trim();
   const category = req.body.category.trim();
-  const color = req.body.color.trim();
-  const size = req.body.size.trim();
   const price = Number(req.body.price);
+  const filesMap = filesByFieldName(req.files);
 
-  let uploadedImage = null;
+  const uploaded = [];
 
   try {
-    uploadedImage = await uploadProductImage(code, req.file);
+    for (const v of variants) {
+      const file = filesMap.get(variantImageFieldName(v.id));
+      const { url, storagePath } = await uploadProductImage(code, v.id, file);
+      uploaded.push({ storagePath });
+      v.imageUrl = url;
+      v.imagePath = storagePath;
+    }
+
+    const colors = variants.map((v) => v.color);
+    const sizes = [...new Set(variants.flatMap((v) => v.sizes))];
 
     try {
       await productsRef.doc(code).create({
         description,
         category,
-        color,
-        size,
         price,
-        imageUrl: uploadedImage.url,
-        imagePath: uploadedImage.storagePath,
+        variants,
+        colors,
+        sizes,
         searchKeywords: buildSearchKeywords(code, description),
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
     } catch (err) {
-      await deleteProductImage(uploadedImage.storagePath);
+      await Promise.all(uploaded.map((u) => deleteProductImage(u.storagePath)));
       if (isAlreadyExists(err)) {
         return res.status(409).json({ error: `Ja existe um produto com o codigo "${code}".` });
       }
       throw err;
     }
 
-    await updateFiltersMeta(category, color);
+    await updateFiltersMeta(category, colors);
 
     const created = await productsRef.doc(code).get();
     res.status(201).json(serializeProduct(created));
@@ -200,9 +292,11 @@ router.post('/', requireAuth, upload.single('image'), async (req, res) => {
   }
 });
 
-// PUT /api/products/:code - atualiza um produto existente (imagem opcional).
-// O codigo (ID do documento) nao pode ser alterado nesta rota.
-router.put('/:code', requireAuth, upload.single('image'), async (req, res) => {
+// PUT /api/products/:code - atualiza um produto existente. A lista de
+// variacoes enviada substitui a lista anterior por completo: variacoes sem
+// um arquivo novo mantem a imagem ja existente (casadas pelo "id"); as que
+// deixarem de ser enviadas tem sua imagem removida do Storage.
+router.put('/:code', requireAuth, upload.any(), async (req, res) => {
   const code = req.params.code;
   const docRef = productsRef.doc(code);
 
@@ -211,49 +305,105 @@ router.put('/:code', requireAuth, upload.single('image'), async (req, res) => {
     if (!existingSnap.exists) {
       return res.status(404).json({ error: 'Produto nao encontrado.' });
     }
+    const existing = existingSnap.data();
+    const existingVariants = Array.isArray(existing.variants) ? existing.variants : [];
+    const existingById = new Map(existingVariants.map((v) => [v.id, v]));
 
-    const errors = validateFields(req.body, { partial: true });
+    const errors = validateBaseFields(req.body, { partial: true });
     if (req.body.code !== undefined && String(req.body.code).trim() !== code) {
       errors.push('Nao e permitido alterar o codigo de um produto existente.');
     }
+
+    let variants = null;
+    if (req.body.variants !== undefined) {
+      try {
+        variants = parseVariants(req.body.variants);
+      } catch (err) {
+        errors.push(err.message);
+      }
+    }
+
+    const filesMap = filesByFieldName(req.files);
+    if (variants) {
+      for (const v of variants) {
+        const hasNewFile = filesMap.has(variantImageFieldName(v.id));
+        const hasExistingImage = existingById.has(v.id);
+        if (!hasNewFile && !hasExistingImage) {
+          errors.push(`Envie uma imagem para a cor "${v.color}".`);
+        }
+      }
+    }
+
     if (errors.length) return res.status(400).json({ error: errors.join(' ') });
 
-    const existing = existingSnap.data();
     const description = req.body.description !== undefined ? req.body.description.trim() : existing.description;
     const category = req.body.category !== undefined ? req.body.category.trim() : existing.category;
-    const color = req.body.color !== undefined ? req.body.color.trim() : existing.color;
-    const size = req.body.size !== undefined ? req.body.size.trim() : existing.size;
     const price = req.body.price !== undefined ? Number(req.body.price) : existing.price;
+
+    const uploaded = [];
+    const finalVariants = [];
+
+    if (variants) {
+      for (const v of variants) {
+        const file = filesMap.get(variantImageFieldName(v.id));
+        if (file) {
+          const { url, storagePath } = await uploadProductImage(code, v.id, file);
+          uploaded.push({ storagePath });
+          finalVariants.push({ id: v.id, color: v.color, sizes: v.sizes, imageUrl: url, imagePath: storagePath });
+        } else {
+          const prev = existingById.get(v.id);
+          finalVariants.push({
+            id: v.id,
+            color: v.color,
+            sizes: v.sizes,
+            imageUrl: prev.imageUrl,
+            imagePath: prev.imagePath,
+          });
+        }
+      }
+    }
+
+    const colors = finalVariants.length ? finalVariants.map((v) => v.color) : existing.colors || [];
+    const sizes = finalVariants.length
+      ? [...new Set(finalVariants.flatMap((v) => v.sizes))]
+      : existing.sizes || [];
 
     const updates = {
       description,
       category,
-      color,
-      size,
       price,
       searchKeywords: buildSearchKeywords(code, description),
       updatedAt: FieldValue.serverTimestamp(),
     };
-
-    let uploadedImage = null;
-    if (req.file) {
-      uploadedImage = await uploadProductImage(code, req.file);
-      updates.imageUrl = uploadedImage.url;
-      updates.imagePath = uploadedImage.storagePath;
+    if (finalVariants.length) {
+      updates.variants = finalVariants;
+      updates.colors = colors;
+      updates.sizes = sizes;
     }
 
     try {
       await docRef.update(updates);
     } catch (err) {
-      if (uploadedImage) await deleteProductImage(uploadedImage.storagePath);
+      await Promise.all(uploaded.map((u) => deleteProductImage(u.storagePath)));
       throw err;
     }
 
-    if (uploadedImage && existing.imagePath) {
-      await deleteProductImage(existing.imagePath);
+    // Remove do Storage as imagens de variacoes que existiam antes e nao
+    // estao mais na lista enviada (cor removida do produto), ou que foram
+    // substituidas por uma imagem nova.
+    if (finalVariants.length) {
+      const finalById = new Map(finalVariants.map((v) => [v.id, v]));
+      const toDelete = [];
+      for (const prev of existingVariants) {
+        const current = finalById.get(prev.id);
+        if (!current || current.imagePath !== prev.imagePath) {
+          if (prev.imagePath) toDelete.push(prev.imagePath);
+        }
+      }
+      await Promise.all(toDelete.map((p) => deleteProductImage(p)));
     }
 
-    await updateFiltersMeta(category, color);
+    await updateFiltersMeta(category, colors);
 
     const updated = await docRef.get();
     res.json(serializeProduct(updated));
@@ -263,7 +413,8 @@ router.put('/:code', requireAuth, upload.single('image'), async (req, res) => {
   }
 });
 
-// DELETE /api/products/:code - remove um produto e sua imagem
+// DELETE /api/products/:code - remove um produto e as imagens de todas as
+// suas variacoes de cor.
 router.delete('/:code', requireAuth, async (req, res) => {
   try {
     const docRef = productsRef.doc(req.params.code);
@@ -272,7 +423,9 @@ router.delete('/:code', requireAuth, async (req, res) => {
 
     const data = snap.data();
     await docRef.delete();
-    await deleteProductImage(data.imagePath);
+
+    const variants = Array.isArray(data.variants) ? data.variants : [];
+    await Promise.all(variants.map((v) => deleteProductImage(v.imagePath)));
 
     res.json({ ok: true });
   } catch (err) {

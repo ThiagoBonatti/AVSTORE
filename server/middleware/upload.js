@@ -11,10 +11,15 @@ function fileFilter(req, file, cb) {
   cb(null, true);
 }
 
+// Cada produto agora pode ter varias variacoes de cor, cada uma com sua
+// propria imagem. O formulario envia um arquivo por variacao, com o nome do
+// campo no formato "variantImage_<id>" (id gerado no admin/js/admin.js), por
+// isso usamos upload.any() em vez de upload.single()/upload.array() — o
+// numero e os nomes dos campos de arquivo variam de produto para produto.
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  limits: { fileSize: 5 * 1024 * 1024, files: 20 }, // 5MB por imagem, ate 20 variacoes
 });
 
 module.exports = { upload };

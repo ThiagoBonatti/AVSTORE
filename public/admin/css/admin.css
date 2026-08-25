@@ -1,4 +1,6 @@
 :root {
+  /* Mesma paleta em tons de cinza usada na loja publica, para combinar com
+     a logo (grafismo cinza monocromatico). */
   --color-bg: #f4f5f7;
   --color-surface: #ffffff;
   --color-text: #1b1d21;
@@ -6,7 +8,7 @@
   --color-border: #e5e7eb;
   --color-primary: #1b1d21;
   --color-primary-hover: #34363b;
-  --color-accent: #d4af37;
+  --color-accent: #8a8a8a;
   --color-danger: #c0392b;
   --color-danger-hover: #a93226;
   --radius: 10px;
@@ -43,11 +45,12 @@ a { color: inherit; }
 }
 
 .login-logo {
-  font-size: 1.3rem;
-  font-weight: 800;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   margin-bottom: 4px;
 }
-.login-logo span { color: var(--color-accent); }
+.login-logo-img { height: 34px; width: auto; display: block; }
 .login-logo small { font-weight: 500; color: var(--color-text-muted); font-size: 0.8rem; }
 
 .login-card h1 { font-size: 1.2rem; margin: 0 0 20px; }
@@ -107,8 +110,9 @@ a { color: inherit; }
   flex-wrap: wrap;
   gap: 12px;
 }
-.admin-logo { font-size: 1.2rem; font-weight: 800; }
-.admin-logo span { color: var(--color-accent); }
+.admin-logo { display: flex; align-items: baseline; gap: 8px; font-size: 1.2rem; font-weight: 800; }
+.admin-logo-img { height: 30px; width: auto; display: block; }
+.admin-logo span { color: var(--color-text-muted); font-weight: 600; font-size: 0.85rem; }
 .admin-header-actions { display: flex; align-items: center; gap: 16px; }
 .admin-username { font-size: 0.85rem; color: var(--color-text-muted); }
 
@@ -180,6 +184,64 @@ a { color: inherit; }
   border: 1px solid var(--color-border);
   margin-top: 6px;
   display: none;
+}
+
+/* Variacoes de cor/tamanho/imagem */
+.variants-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.variants-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+.variants-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+.variants-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.variant-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  padding: 14px 40px 14px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg);
+}
+.variant-row .full { grid-column: 1 / -1; }
+.variant-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.variant-row label small { font-weight: 400; color: var(--color-text-muted); }
+.variant-row input {
+  font-family: inherit;
+  font-size: 0.95rem;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-weight: 400;
+}
+.variant-remove {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-size: 1rem;
 }
 
 /* Product table */

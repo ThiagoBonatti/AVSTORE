@@ -21,12 +21,11 @@ if (!form) {
   const codeLockedHint = document.getElementById('code-locked-hint');
   const descriptionInput = document.getElementById('description');
   const categoryInput = document.getElementById('category');
-  const colorInput = document.getElementById('color');
-  const sizeInput = document.getElementById('size');
   const priceInput = document.getElementById('price');
-  const imageInput = document.getElementById('image');
-  const imagePreview = document.getElementById('image-preview');
-  const imageRequiredHint = document.getElementById('image-required-hint');
+
+  const variantsList = document.getElementById('variants-list');
+  const variantRowTemplate = document.getElementById('variant-row-template');
+  const addVariantBtn = document.getElementById('add-variant-btn');
 
   const formTitle = document.getElementById('form-title');
   const submitBtn = document.getElementById('submit-btn');
@@ -47,6 +46,12 @@ if (!form) {
   let currentUser = null;
   let allProducts = [];
   let editingCode = null;
+  let isEditingProduct = false;
+
+  function makeVariantId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+    return `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  }
 
   // -------------------- fetch autenticado --------------------
   // Anexa o ID token do Firebase Authentication como Bearer token nas
@@ -128,14 +133,16 @@ if (!form) {
     }
 
     allProducts.forEach((p) => {
+      const colors = (p.colors || []).join(', ');
+      const sizes = (p.sizes || []).join(', ');
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td><img class="table-thumb" src="${p.imageUrl || ''}" alt="${escapeHtml(p.description)}" /></td>
         <td>${escapeHtml(p.code)}</td>
         <td class="description-cell">${escapeHtml(p.description)}</td>
         <td>${escapeHtml(p.category)}</td>
-        <td>${escapeHtml(p.color)}</td>
-        <td>${escapeHtml(p.size)}</td>
+        <td>${escapeHtml(colors)}</td>
+        <td>${escapeHtml(sizes)}</td>
         <td>${currency.format(p.price)}</td>
         <td>${p.createdAt ? dateFormatter.format(new Date(p.createdAt)) : ''}</td>
         <td class="row-actions">
@@ -149,7 +156,7 @@ if (!form) {
 
   function renderDatalists() {
     const categories = [...new Set(allProducts.map((p) => p.category))].sort();
-    const colors = [...new Set(allProducts.map((p) => p.color))].sort();
+    const colors = [...new Set(allProducts.flatMap((p) => p.colors || []))].sort();
     categoryList.innerHTML = categories.map((c) => `<option value="${escapeHtml(c)}"></option>`).join('');
     colorList.innerHTML = colors.map((c) => `<option value="${escapeHtml(c)}"></option>`).join('');
   }
@@ -165,24 +172,88 @@ if (!form) {
     if (btn.dataset.action === 'delete') deleteProduct(product);
   });
 
+  // -------------------- Variacoes (cor + tamanhos + imagem) --------------------
+  function createVariantRow({ id, color = '', sizes = [], imageUrl = null } = {}) {
+    const variantId = id || makeVariantId();
+    const fragment = variantRowTemplate.content.cloneNode(true);
+    const row = fragment.querySelector('[data-variant-row]');
+    row.dataset.id = variantId;
+
+    const colorInput = row.querySelector('[data-field="color"]');
+    const sizesInput = row.querySelector('[data-field="sizes"]');
+    const imageInput = row.querySelector('[data-field="image"]');
+    const imagePreview = row.querySelector('[data-field="image-preview"]');
+    const imageHint = row.querySelector('[data-field="image-hint"]');
+    const removeBtn = row.querySelector('[data-action="remove-variant"]');
+
+    colorInput.value = color;
+    sizesInput.value = sizes.join(', ');
+
+    if (imageUrl) {
+      imagePreview.src = imageUrl;
+      imagePreview.style.display = 'block';
+      imageHint.textContent = '(envie apenas se quiser trocar a imagem desta cor)';
+    } else {
+      imageHint.textContent = '(obrigatoria)';
+    }
+
+    imageInput.addEventListener('change', () => {
+      const file = imageInput.files[0];
+      if (!file) return;
+      imagePreview.src = URL.createObjectURL(file);
+      imagePreview.style.display = 'block';
+    });
+
+    removeBtn.addEventListener('click', () => {
+      if (variantsList.querySelectorAll('[data-variant-row]').length <= 1) {
+        showMessage('O produto precisa de ao menos uma cor cadastrada.', 'error');
+        return;
+      }
+      row.remove();
+    });
+
+    variantsList.appendChild(row);
+    return row;
+  }
+
+  addVariantBtn.addEventListener('click', () => createVariantRow());
+
+  function resetVariants() {
+    variantsList.innerHTML = '';
+    createVariantRow();
+  }
+
+  function collectVariants() {
+    const rows = variantsList.querySelectorAll('[data-variant-row]');
+    const variants = [];
+    rows.forEach((row) => {
+      const id = row.dataset.id;
+      const color = row.querySelector('[data-field="color"]').value.trim();
+      const sizes = row
+        .querySelector('[data-field="sizes"]')
+        .value.split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const file = row.querySelector('[data-field="image"]').files[0] || null;
+      variants.push({ id, color, sizes, file });
+    });
+    return variants;
+  }
+
   // -------------------- Formulario: criar / editar --------------------
   function startEdit(product) {
     editingCode = product.code;
+    isEditingProduct = true;
     codeInput.value = product.code;
     codeInput.readOnly = true;
     codeLockedHint.textContent = '(nao pode ser alterado)';
     descriptionInput.value = product.description;
     categoryInput.value = product.category;
-    colorInput.value = product.color;
-    sizeInput.value = product.size;
     priceInput.value = product.price;
-    imageInput.value = '';
-    imageRequiredHint.textContent = '(envie apenas se quiser trocar a imagem atual)';
 
-    if (product.imageUrl) {
-      imagePreview.src = product.imageUrl;
-      imagePreview.style.display = 'block';
-    }
+    variantsList.innerHTML = '';
+    (product.variants || []).forEach((v) => createVariantRow(v));
+    if (!variantsList.querySelector('[data-variant-row]')) createVariantRow();
 
     formTitle.textContent = `Editando produto: ${product.code}`;
     submitBtn.textContent = 'Salvar alteracoes';
@@ -194,24 +265,16 @@ if (!form) {
   function resetForm() {
     form.reset();
     editingCode = null;
+    isEditingProduct = false;
     codeInput.readOnly = false;
     codeLockedHint.textContent = '';
-    imagePreview.style.display = 'none';
-    imagePreview.src = '';
-    imageRequiredHint.textContent = '(obrigatoria)';
+    resetVariants();
     formTitle.textContent = 'Cadastrar novo produto';
     submitBtn.textContent = 'Cadastrar produto';
     cancelEditBtn.hidden = true;
   }
 
   cancelEditBtn.addEventListener('click', resetForm);
-
-  imageInput.addEventListener('change', () => {
-    const file = imageInput.files[0];
-    if (!file) return;
-    imagePreview.src = URL.createObjectURL(file);
-    imagePreview.style.display = 'block';
-  });
 
   function showMessage(text, type) {
     formMessage.textContent = text;
@@ -240,21 +303,40 @@ if (!form) {
     e.preventDefault();
     hideMessage();
 
-    const isEdit = Boolean(editingCode);
+    const isEdit = isEditingProduct;
+    const variants = collectVariants();
 
-    if (!isEdit && !imageInput.files[0]) {
-      showMessage('A imagem do produto e obrigatoria para novos cadastros.', 'error');
+    if (variants.length === 0) {
+      showMessage('Cadastre ao menos uma cor.', 'error');
       return;
+    }
+    for (const v of variants) {
+      if (!v.color) {
+        showMessage('Informe a cor de todas as variacoes.', 'error');
+        return;
+      }
+      if (v.sizes.length === 0) {
+        showMessage(`Informe ao menos um tamanho para a cor "${v.color}".`, 'error');
+        return;
+      }
+      if (!isEdit && !v.file) {
+        showMessage(`Envie uma imagem para a cor "${v.color}".`, 'error');
+        return;
+      }
     }
 
     const formData = new FormData();
     formData.append('code', codeInput.value.trim());
     formData.append('description', descriptionInput.value.trim());
     formData.append('category', categoryInput.value.trim());
-    formData.append('color', colorInput.value.trim());
-    formData.append('size', sizeInput.value.trim());
     formData.append('price', priceInput.value);
-    if (imageInput.files[0]) formData.append('image', imageInput.files[0]);
+    formData.append(
+      'variants',
+      JSON.stringify(variants.map((v) => ({ id: v.id, color: v.color, sizes: v.sizes })))
+    );
+    variants.forEach((v) => {
+      if (v.file) formData.append(`variantImage_${v.id}`, v.file);
+    });
 
     submitBtn.disabled = true;
 
@@ -278,4 +360,6 @@ if (!form) {
       submitBtn.disabled = false;
     }
   });
+
+  resetVariants();
 }

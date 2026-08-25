@@ -1,12 +1,15 @@
 :root {
-  --color-bg: #f7f7f8;
+  /* Paleta ajustada para combinar com a logo (grafismo cinza monocromatico
+     sobre fundo quase branco) — sem cor de destaque colorida, so tons de
+     cinza e preto, iguais aos usados na propria logo. */
+  --color-bg: #f6f6f6;
   --color-surface: #ffffff;
   --color-text: #1b1d21;
   --color-text-muted: #6b7280;
   --color-border: #e5e7eb;
   --color-primary: #1b1d21;
   --color-primary-hover: #34363b;
-  --color-accent: #d4af37;
+  --color-accent: #8a8a8a;
   --color-danger: #c0392b;
   --radius: 10px;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05);
@@ -49,40 +52,17 @@ a { color: inherit; text-decoration: none; }
 }
 
 .logo {
+  display: inline-flex;
+  align-items: center;
   font-size: 1.4rem;
   font-weight: 800;
   letter-spacing: 0.5px;
 }
 .logo span { color: var(--color-accent); }
-
-.cart-toggle {
-  position: relative;
-  background: var(--color-primary);
-  color: #fff;
-  border: none;
-  border-radius: 999px;
-  padding: 10px 16px;
-  font-size: 1rem;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  transition: background 0.15s ease;
-}
-.cart-toggle:hover { background: var(--color-primary-hover); }
-
-.cart-count {
-  background: var(--color-accent);
-  color: #1b1d21;
-  font-weight: 700;
-  font-size: 0.75rem;
-  border-radius: 999px;
-  min-width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
+.logo-img {
+  height: 38px;
+  width: auto;
+  display: block;
 }
 
 /* Filters */
@@ -197,6 +177,52 @@ select:focus, input:focus {
   padding: 0 14px 14px;
 }
 
+/* Amostras de cor (swatches) e seletor de tamanho, no card e no modal */
+.color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.color-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  cursor: pointer;
+  padding: 0;
+  transition: border-color 0.15s ease, transform 0.1s ease;
+}
+.color-swatch:hover { transform: scale(1.08); }
+.color-swatch.selected {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 3px var(--color-primary);
+}
+.color-swatch-text {
+  border-radius: 999px;
+  width: auto;
+  min-width: 26px;
+  padding: 0 8px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.size-select-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+.size-select {
+  padding: 6px 8px;
+  font-size: 0.85rem;
+}
+
 .empty-state, .loading-state {
   text-align: center;
   color: var(--color-text-muted);
@@ -234,81 +260,18 @@ select:focus, input:focus {
 }
 .icon-btn:hover { color: var(--color-text); }
 
-/* Cart panel */
-.cart-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  height: 100%;
-  width: min(400px, 100%);
-  background: var(--color-surface);
-  box-shadow: -8px 0 30px rgba(0,0,0,0.15);
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
-  transform: translateX(100%);
-  transition: transform 0.25s ease;
-}
-.cart-panel.open { transform: translateX(0); }
-
-.cart-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 18px 20px;
-  border-bottom: 1px solid var(--color-border);
-}
-.cart-panel-header h2 { margin: 0; font-size: 1.1rem; }
-
-.cart-items {
-  flex: 1;
-  overflow-y: auto;
-  padding: 12px 20px;
-}
-
-.cart-empty { text-align: center; color: var(--color-text-muted); margin-top: 40px; }
-
-.cart-item {
-  display: flex;
-  gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--color-border);
-}
-.cart-item img {
-  width: 64px; height: 64px; object-fit: cover; border-radius: 8px; background: #eee;
-}
-.cart-item-info { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-.cart-item-info h4 { margin: 0; font-size: 0.9rem; }
-.cart-item-meta { font-size: 0.78rem; color: var(--color-text-muted); }
-.cart-item-controls { display: flex; align-items: center; gap: 8px; }
-.qty-btn {
-  width: 24px; height: 24px; border-radius: 6px; border: 1px solid var(--color-border);
-  background: #fff; cursor: pointer; font-size: 0.9rem; line-height: 1;
-}
-.cart-item-remove { margin-left: auto; font-size: 0.78rem; color: var(--color-danger); background: none; border: none; cursor: pointer; }
-
-.cart-footer {
-  padding: 16px 20px 20px;
-  border-top: 1px solid var(--color-border);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.cart-total-row {
-  display: flex; justify-content: space-between; align-items: center; font-size: 1.05rem; margin-bottom: 4px;
-}
-
-.cart-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 30;
-  opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
-}
-.cart-overlay.visible { opacity: 1; pointer-events: auto; }
-
 /* Modal */
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.5);
   display: flex; align-items: center; justify-content: center;
   z-index: 50; padding: 20px;
+}
+/* O atributo [hidden] do HTML tem baixa prioridade no CSS e e sobrescrito
+   pelo "display: flex" acima assim que a classe .modal-overlay esta presente
+   no elemento (mesmo com o atributo hidden). Sem esta regra, o modal fica
+   visivel (porem vazio) antes de qualquer produto ser aberto. */
+.modal-overlay[hidden] {
+  display: none;
 }
 .modal {
   background: #fff; border-radius: var(--radius); max-width: 700px; width: 100%;
