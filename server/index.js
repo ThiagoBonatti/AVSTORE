@@ -5,6 +5,7 @@ const express = require('express');
 
 const authRoutes = require('./routes/auth');
 const productRoutes = require('./routes/products');
+const stockRoutes = require('./routes/stock');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,6 +26,7 @@ app.get('/healthz', (req, res) => res.status(200).json({ ok: true }));
 // API
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
+app.use('/api/stock', stockRoutes);
 
 // Arquivos estaticos da area publica e do painel administrativo.
 // Diferente da versao anterior (sessao de servidor), a autenticacao agora e

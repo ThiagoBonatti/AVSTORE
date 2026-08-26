@@ -176,12 +176,27 @@ router.get('/', async (req, res) => {
       return res.json({ items, limit, hasMore: false, nextCursor: null });
     }
 
+    if (req.query.color) {
+      // "colors" e um array com as cores de todas as variacoes do produto.
+      // Combinar um filtro array-contains nele com orderBy(createdAt) exigiria
+      // um indice composto dedicado no Firestore (criado manualmente no
+      // console). Para nao depender disso, buscamos um lote (respeitando a
+      // categoria, que ja tem indice proprio) e filtramos por cor em memoria
+      // — mesma estrategia ja usada acima no modo de busca por texto, sem
+      // paginacao por cursor nesse modo.
+      let colorQuery = productsRef;
+      if (req.query.category) colorQuery = colorQuery.where('category', '==', req.query.category);
+      colorQuery = colorQuery.orderBy('createdAt', 'desc').limit(300);
+      const snapshot = await colorQuery.get();
+      const items = snapshot.docs
+        .map(serializeProduct)
+        .filter((p) => p.colors.includes(req.query.color))
+        .slice(0, limit);
+      return res.json({ items, limit, hasMore: false, nextCursor: null });
+    }
+
     let query = productsRef;
     if (req.query.category) query = query.where('category', '==', req.query.category);
-    // "colors" e um array com as cores de todas as variacoes do produto,
-    // mantido junto de "variants" para permitir esse filtro (o Firestore
-    // nao consegue fazer array-contains dentro de um array de objetos).
-    if (req.query.color) query = query.where('colors', 'array-contains', req.query.color);
     query = query.orderBy('createdAt', 'desc');
 
     if (req.query.cursor) {
@@ -257,6 +272,10 @@ router.post('/', requireAuth, upload.any(), async (req, res) => {
       uploaded.push({ storagePath });
       v.imageUrl = url;
       v.imagePath = storagePath;
+      // Estoque de um produto novo comeca zerado em todos os tamanhos; as
+      // quantidades sao lancadas depois pela tela de compras (mini ERP,
+      // ver server/routes/stock.js).
+      v.stock = Object.fromEntries(v.sizes.map((s) => [s, 0]));
     }
 
     const colors = variants.map((v) => v.color);
@@ -325,11 +344,42 @@ router.put('/:code', requireAuth, upload.any(), async (req, res) => {
 
     const filesMap = filesByFieldName(req.files);
     if (variants) {
+      const variantsById = new Map(variants.map((v) => [v.id, v]));
+
       for (const v of variants) {
         const hasNewFile = filesMap.has(variantImageFieldName(v.id));
         const hasExistingImage = existingById.has(v.id);
         if (!hasNewFile && !hasExistingImage) {
           errors.push(`Envie uma imagem para a cor "${v.color}".`);
+        }
+      }
+
+      // Uma cor ou tamanho so pode ser removido do cadastro se nao houver
+      // estoque lancado para ele (senao a quantidade em estoque "some" sem
+      // deixar rastro). O estoque e lancado pela tela de compras/vendas
+      // (mini ERP, ver server/routes/stock.js), nao por aqui.
+      for (const prevVariant of existingVariants) {
+        const prevStock = prevVariant.stock || {};
+        const stillPresent = variantsById.get(prevVariant.id);
+
+        if (!stillPresent) {
+          const hasStock = Object.values(prevStock).some((q) => Number(q) > 0);
+          if (hasStock) {
+            errors.push(
+              `Nao e possivel remover a cor "${prevVariant.color}" pois ainda ha unidades em estoque. Zere o estoque antes (lancando uma venda ou ajuste na tela de Compras e Vendas).`
+            );
+          }
+          continue;
+        }
+
+        const removedSizes = (prevVariant.sizes || []).filter((s) => !stillPresent.sizes.includes(s));
+        for (const s of removedSizes) {
+          const qty = Number(prevStock[s] || 0);
+          if (qty > 0) {
+            errors.push(
+              `Nao e possivel remover o tamanho "${s}" da cor "${prevVariant.color}" pois ainda ha ${qty} unidade(s) em estoque.`
+            );
+          }
         }
       }
     }
@@ -345,19 +395,26 @@ router.put('/:code', requireAuth, upload.any(), async (req, res) => {
 
     if (variants) {
       for (const v of variants) {
+        const prev = existingById.get(v.id);
+        const prevStock = (prev && prev.stock) || {};
+        // Mantem a quantidade de cada tamanho que ja existia (mesmo que o
+        // tamanho tenha sido reordenado no formulario); tamanhos novos
+        // comecam com estoque zero, a ser lancado na tela de compras.
+        const stock = Object.fromEntries(v.sizes.map((s) => [s, Number(prevStock[s] || 0)]));
+
         const file = filesMap.get(variantImageFieldName(v.id));
         if (file) {
           const { url, storagePath } = await uploadProductImage(code, v.id, file);
           uploaded.push({ storagePath });
-          finalVariants.push({ id: v.id, color: v.color, sizes: v.sizes, imageUrl: url, imagePath: storagePath });
+          finalVariants.push({ id: v.id, color: v.color, sizes: v.sizes, imageUrl: url, imagePath: storagePath, stock });
         } else {
-          const prev = existingById.get(v.id);
           finalVariants.push({
             id: v.id,
             color: v.color,
             sizes: v.sizes,
             imageUrl: prev.imageUrl,
             imagePath: prev.imagePath,
+            stock,
           });
         }
       }
@@ -422,9 +479,16 @@ router.delete('/:code', requireAuth, async (req, res) => {
     if (!snap.exists) return res.status(404).json({ error: 'Produto nao encontrado.' });
 
     const data = snap.data();
-    await docRef.delete();
-
     const variants = Array.isArray(data.variants) ? data.variants : [];
+
+    const hasStock = variants.some((v) => Object.values(v.stock || {}).some((q) => Number(q) > 0));
+    if (hasStock) {
+      return res.status(400).json({
+        error: 'Nao e possivel excluir: este produto ainda tem unidades em estoque. Zere o estoque antes (tela de Compras e Vendas).',
+      });
+    }
+
+    await docRef.delete();
     await Promise.all(variants.map((v) => deleteProductImage(v.imagePath)));
 
     res.json({ ok: true });

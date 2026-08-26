@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AVSTORE Admin - Compras, Vendas e Estoque</title>
+<link rel="icon" type="image/png" href="/img/favicon-32.png" />
+<link rel="apple-touch-icon" href="/img/favicon-180.png" />
+<link rel="stylesheet" href="/admin/css/admin.css" />
+</head>
+<body>
+  <header class="admin-header">
+    <div class="admin-logo"><img src="/img/logo.png" alt="AVSTORE" class="admin-logo-img" /><span>Admin</span></div>
+    <nav class="admin-nav">
+      <a href="/admin/dashboard.html" class="admin-nav-link">Produtos</a>
+      <a href="/admin/estoque.html" class="admin-nav-link active">Compras, vendas e estoque</a>
+    </nav>
+    <div class="admin-header-actions">
+      <span class="admin-username" id="admin-username"></span>
+      <a href="/" class="btn btn-ghost btn-sm">Ver loja</a>
+      <button id="logout-btn" class="btn btn-ghost btn-sm">Sair</button>
+    </div>
+  </header>
+
+  <main class="admin-main">
+    <section class="admin-card">
+      <h2>Lancar compra ou venda</h2>
+
+      <div class="type-toggle" role="radiogroup" aria-label="Tipo de movimentacao">
+        <button type="button" class="type-toggle-btn active" data-type="sale">Venda (saida)</button>
+        <button type="button" class="type-toggle-btn" data-type="purchase">Compra (entrada)</button>
+      </div>
+
+      <form id="movement-form" class="product-form">
+        <label class="full">
+          Produto
+          <select id="mv-product" required>
+            <option value="">Selecione um produto...</option>
+          </select>
+        </label>
+
+        <label>
+          Cor
+          <select id="mv-variant" required disabled>
+            <option value="">Selecione a cor...</option>
+          </select>
+        </label>
+
+        <label>
+          Tamanho <span id="mv-size-stock-hint" class="field-hint"></span>
+          <select id="mv-size" required disabled>
+            <option value="">Selecione o tamanho...</option>
+          </select>
+        </label>
+
+        <label>
+          Quantidade
+          <input type="number" id="mv-quantity" min="1" step="1" required />
+        </label>
+
+        <label>
+          <span id="mv-price-label">Preco unitario (R$)</span>
+          <input type="number" id="mv-unit-price" min="0" step="0.01" required />
+        </label>
+
+        <label class="full supplier-field">
+          Fornecedor
+          <input type="text" id="mv-supplier-name" placeholder="Nome do fornecedor" />
+        </label>
+        <label class="full supplier-field">
+          Contato do fornecedor <span class="field-hint">(opcional)</span>
+          <input type="text" id="mv-supplier-contact" placeholder="Telefone, WhatsApp ou e-mail" />
+        </label>
+
+        <label class="full">
+          Observacao <span class="field-hint">(opcional)</span>
+          <input type="text" id="mv-note" placeholder="Ex.: pedido #123, troca, ajuste de inventario..." />
+        </label>
+
+        <p id="mv-message" class="form-message" hidden></p>
+
+        <div class="form-actions">
+          <button type="submit" id="mv-submit-btn" class="btn btn-primary">Lancar venda</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="admin-card">
+      <div class="card-header-row">
+        <h2>Estoque atual</h2>
+        <input type="search" id="stock-filter" class="table-filter" placeholder="Filtrar por produto ou cor..." />
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Produto</th>
+              <th>Cor</th>
+              <th>Tamanho</th>
+              <th>Em estoque</th>
+            </tr>
+          </thead>
+          <tbody id="stock-table-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="admin-card">
+      <div class="card-header-row">
+        <h2>Historico de movimentacoes</h2>
+        <div class="history-filters">
+          <select id="history-type-filter">
+            <option value="">Todas</option>
+            <option value="sale">Vendas</option>
+            <option value="purchase">Compras</option>
+          </select>
+          <input type="search" id="history-filter" class="table-filter" placeholder="Filtrar por produto ou cor..." />
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Tipo</th>
+              <th>Produto</th>
+              <th>Cor / Tamanho</th>
+              <th>Qtd</th>
+              <th>Valor unit.</th>
+              <th>Valor total</th>
+              <th>Fornecedor</th>
+              <th>Usuario</th>
+              <th>Acoes</th>
+            </tr>
+          </thead>
+          <tbody id="history-table-body"></tbody>
+        </table>
+      </div>
+      <div class="load-more-row">
+        <button type="button" id="load-more-btn" class="btn btn-ghost btn-sm">Carregar mais</button>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="/admin/js/estoque.js"></script>
+</body>
+</html>
