@@ -103,40 +103,12 @@
       <div class="card-header-row">
         <h2>Itens desta nota (<span id="lines-count">0</span>)</h2>
       </div>
-      <div class="table-wrapper">
-        <table>
-          <thead>
-            <tr>
-              <th>Produto</th>
-              <th>Cor</th>
-              <th>Tamanho</th>
-              <th>Codigo</th>
-              <th>Fornecedor</th>
-              <th>NF</th>
-              <th>Qtd</th>
-              <th>Custo unit.</th>
-              <th>Rateio frete</th>
-              <th>Custo c/ frete</th>
-              <th>Subtotal</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="lines-table-body"></tbody>
-        </table>
-      </div>
-
-      <div class="nota-footer">
-        <label class="nota-freight-field">
-          Frete total desta nota (R$)
-          <input type="number" id="freight-input" min="0" step="0.01" value="0" />
-        </label>
-        <div class="nota-totals">
-          <span>Subtotal: <strong id="totals-subtotal">R$ 0,00</strong></span>
-          <span>Frete: <strong id="totals-freight">R$ 0,00</strong></span>
-          <span>Total com frete: <strong id="totals-grand">R$ 0,00</strong></span>
-        </div>
-        <button type="button" id="finalize-btn" class="btn btn-primary" disabled>Finalizar nota</button>
-      </div>
+      <p class="variants-hint">
+        Os itens sao agrupados automaticamente pelo numero da NF de cada linha (itens sem NF ficam em um
+        grupo "Sem NF"). Cada nota tem seu proprio rateio de frete e pode ser finalizada de forma
+        independente das demais.
+      </p>
+      <div id="nota-groups" class="nota-groups"></div>
       <p id="finalize-message" class="form-message" hidden></p>
     </section>
   </main>

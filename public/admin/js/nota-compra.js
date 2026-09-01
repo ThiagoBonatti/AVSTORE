@@ -37,15 +37,11 @@ const manualDataNfInput = document.getElementById('manual-data-nf');
 const manualAddBtn = document.getElementById('manual-add-btn');
 
 const linesCountEl = document.getElementById('lines-count');
-const linesTableBody = document.getElementById('lines-table-body');
-const freightInput = document.getElementById('freight-input');
-const totalsSubtotalEl = document.getElementById('totals-subtotal');
-const totalsFreightEl = document.getElementById('totals-freight');
-const totalsGrandEl = document.getElementById('totals-grand');
-const finalizeBtn = document.getElementById('finalize-btn');
+const notaGroupsEl = document.getElementById('nota-groups');
 const finalizeMessage = document.getElementById('finalize-message');
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+const SEM_NF_KEY = '__sem_nf__';
 
 let currentUser = null;
 let catalogProducts = [];
@@ -53,6 +49,12 @@ let newProducts = [];
 let lines = [];
 let batchSeq = 0;
 let manualSeq = 0;
+const freightByNf = new Map(); // groupKey -> valor do frete desta nota (persiste entre re-renders)
+
+function cssEscape(value) {
+  if (window.CSS && typeof window.CSS.escape === 'function') return window.CSS.escape(value);
+  return String(value).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+}
 
 function escapeHtml(str) {
   const div = document.createElement('div');
@@ -97,7 +99,7 @@ onAuthStateChanged(authClient, async (user) => {
   currentUser = user;
   adminUsernameEl.textContent = user.email;
   await Promise.all([loadCatalog(), loadCategories()]);
-  renderLines();
+  renderGroups();
 });
 
 // -------------------- Catalogo (para o formulario manual) --------------------
@@ -201,7 +203,7 @@ manualAddBtn.addEventListener('click', () => {
 
   manualQuantityInput.value = '1';
   manualUnitCostInput.value = '';
-  renderLines();
+  renderGroups();
 });
 
 // -------------------- Importar planilha --------------------
@@ -263,7 +265,7 @@ importBtn.addEventListener('click', async () => {
     lines = lines.concat(importedLines);
 
     renderNewProducts();
-    renderLines();
+    renderGroups();
 
     const warnings = data.warnings || [];
     const rowErrors = data.rowErrors || [];
@@ -340,7 +342,7 @@ newProductsList.addEventListener('input', (e) => {
   const product = newProducts.find((p) => p.tempId === card.dataset.tempId);
   if (!product) return;
   product[field] = field === 'price' ? e.target.value : e.target.value;
-  if (field === 'code') renderLines(); // o codigo aparece na coluna "Produto" da tabela de itens
+  if (field === 'code') renderGroups(); // o codigo aparece na coluna "Produto" da tabela de itens
 });
 
 newProductsList.addEventListener('click', (e) => {
@@ -352,7 +354,7 @@ newProductsList.addEventListener('click', (e) => {
   newProducts = newProducts.filter((p) => p.tempId !== tempId);
   lines = lines.filter((l) => !(l.kind === 'new' && l.tempId === tempId));
   renderNewProducts();
-  renderLines();
+  renderGroups();
 });
 
 // -------------------- Rateio do frete --------------------
@@ -371,55 +373,169 @@ function computeFreightShares(lineList, freight) {
   return shares;
 }
 
-// -------------------- Tabela de itens da nota --------------------
+// -------------------- Itens da nota, agrupados por NF --------------------
+// A planilha pode trazer mais de uma nota fiscal (colunas "NF" diferentes).
+// Cada NF vira um grupo com sua propria tabela, seu proprio frete e seu
+// proprio botao de finalizar - assim cada nota pode ser lancada de forma
+// independente, sem misturar o rateio de frete entre notas diferentes.
+// Itens sem NF preenchida (ex.: adicionados manualmente sem informar a NF)
+// caem no grupo "Sem NF".
 function productLabelForLine(line) {
   if (line.kind === 'existing') return `${line.productCode} - ${line.productDescription || ''}`;
   const product = newProducts.find((p) => p.tempId === line.tempId);
   return product ? `[NOVO] ${product.code || '?'} - ${product.description || ''}` : '[NOVO] (produto removido)';
 }
 
-function renderLines() {
-  const freight = Number(freightInput.value) || 0;
-  const shares = computeFreightShares(lines, freight);
-
-  linesCountEl.textContent = lines.length;
-  finalizeBtn.disabled = lines.length === 0;
-
-  if (lines.length === 0) {
-    linesTableBody.innerHTML = '<tr class="empty-row"><td colspan="12">Nenhum item adicionado ainda.</td></tr>';
-  } else {
-    linesTableBody.innerHTML = lines
-      .map((l, i) => {
-        const share = shares[i];
-        const adjustedCost = round2(l.unitCost + (l.quantity ? share / l.quantity : 0));
-        const subtotal = round2(l.quantity * l.unitCost);
-        return `
-          <tr data-uid="${escapeHtml(l.uid)}">
-            <td>${escapeHtml(productLabelForLine(l))}</td>
-            <td>${escapeHtml(l.color || '')}</td>
-            <td>${escapeHtml(l.size || '')}</td>
-            <td>${escapeHtml(l.itemCode || '-')}</td>
-            <td><input class="lines-table-input wide" type="text" data-field="fornecedor" value="${escapeHtml(l.fornecedor || '')}" /></td>
-            <td><input class="lines-table-input" type="text" data-field="nf" value="${escapeHtml(l.nf || '')}" /></td>
-            <td><input class="lines-table-input" type="number" min="1" step="1" data-field="quantity" value="${l.quantity}" /></td>
-            <td><input class="lines-table-input" type="number" min="0" step="0.01" data-field="unitCost" value="${l.unitCost}" /></td>
-            <td>${currency.format(share)}</td>
-            <td>${currency.format(adjustedCost)}</td>
-            <td>${currency.format(subtotal)}</td>
-            <td><button type="button" class="icon-btn" data-action="remove-line" aria-label="Remover item">✕</button></td>
-          </tr>
-        `;
-      })
-      .join('');
-  }
-
-  const subtotalSum = round2(lines.reduce((sum, l) => sum + l.quantity * l.unitCost, 0));
-  totalsSubtotalEl.textContent = currency.format(subtotalSum);
-  totalsFreightEl.textContent = currency.format(freight);
-  totalsGrandEl.textContent = currency.format(round2(subtotalSum + freight));
+function groupLines() {
+  const map = new Map();
+  lines.forEach((l) => {
+    const key = l.nf && String(l.nf).trim() ? String(l.nf).trim() : SEM_NF_KEY;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(l);
+  });
+  const keys = Array.from(map.keys());
+  keys.sort((a, b) => {
+    if (a === SEM_NF_KEY) return 1;
+    if (b === SEM_NF_KEY) return -1;
+    const na = Number(a);
+    const nb = Number(b);
+    if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+    return a.localeCompare(b, 'pt-BR');
+  });
+  return keys.map((key) => ({
+    key,
+    label: key === SEM_NF_KEY ? 'Sem NF' : `NF ${key}`,
+    items: map.get(key),
+  }));
 }
 
-linesTableBody.addEventListener('change', (e) => {
+function renderGroups() {
+  linesCountEl.textContent = lines.length;
+  const groups = groupLines();
+
+  if (groups.length === 0) {
+    notaGroupsEl.innerHTML = '<p class="variants-hint">Nenhum item adicionado ainda. Importe uma planilha ou adicione um item manualmente acima.</p>';
+    return;
+  }
+
+  notaGroupsEl.innerHTML = groups.map(renderGroupCardHtml).join('');
+}
+
+function renderGroupCardHtml(group) {
+  const freight = freightByNf.get(group.key) || 0;
+  const shares = computeFreightShares(group.items, freight);
+
+  const rows = group.items
+    .map((l, i) => {
+      const share = shares[i];
+      const adjustedCost = round2(l.unitCost + (l.quantity ? share / l.quantity : 0));
+      const subtotal = round2(l.quantity * l.unitCost);
+      return `
+        <tr data-uid="${escapeHtml(l.uid)}">
+          <td>${escapeHtml(productLabelForLine(l))}</td>
+          <td>${escapeHtml(l.color || '')}</td>
+          <td>${escapeHtml(l.size || '')}</td>
+          <td>${escapeHtml(l.itemCode || '-')}</td>
+          <td><input class="lines-table-input wide" type="text" data-field="fornecedor" value="${escapeHtml(l.fornecedor || '')}" /></td>
+          <td><input class="lines-table-input" type="text" data-field="nf" value="${escapeHtml(l.nf || '')}" /></td>
+          <td><input class="lines-table-input" type="number" min="1" step="1" data-field="quantity" value="${l.quantity}" /></td>
+          <td><input class="lines-table-input" type="number" min="0" step="0.01" data-field="unitCost" value="${l.unitCost}" /></td>
+          <td data-cell="share">${currency.format(share)}</td>
+          <td data-cell="adjusted">${currency.format(adjustedCost)}</td>
+          <td data-cell="subtotal">${currency.format(subtotal)}</td>
+          <td><button type="button" class="icon-btn" data-action="remove-line" aria-label="Remover item">✕</button></td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const subtotalSum = round2(group.items.reduce((sum, l) => sum + l.quantity * l.unitCost, 0));
+
+  return `
+    <div class="nota-group" data-group-key="${escapeHtml(group.key)}">
+      <div class="card-header-row">
+        <h3>${escapeHtml(group.label)} (<span data-cell="count">${group.items.length}</span> ${group.items.length === 1 ? 'item' : 'itens'})</h3>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Produto</th>
+              <th>Cor</th>
+              <th>Tamanho</th>
+              <th>Codigo</th>
+              <th>Fornecedor</th>
+              <th>NF</th>
+              <th>Qtd</th>
+              <th>Custo unit.</th>
+              <th>Rateio frete</th>
+              <th>Custo c/ frete</th>
+              <th>Subtotal</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody data-group-tbody>${rows}</tbody>
+        </table>
+      </div>
+      <div class="nota-footer">
+        <label class="nota-freight-field">
+          Frete total desta nota (R$)
+          <input type="number" min="0" step="0.01" value="${freight}" data-role="freight-input" />
+        </label>
+        <div class="nota-totals">
+          <span>Subtotal: <strong data-cell="totals-subtotal">${currency.format(subtotalSum)}</strong></span>
+          <span>Frete: <strong data-cell="totals-freight">${currency.format(freight)}</strong></span>
+          <span>Total com frete: <strong data-cell="totals-grand">${currency.format(round2(subtotalSum + freight))}</strong></span>
+        </div>
+        <button type="button" class="btn btn-primary" data-action="finalize-group">Finalizar esta nota</button>
+      </div>
+    </div>
+  `;
+}
+
+// Atualiza so os numeros (rateio, custo c/frete, totais) de um grupo sem
+// recriar o input de frete - assim o campo nao perde o foco enquanto o
+// admin digita o valor do frete.
+function updateGroupDisplay(key) {
+  const card = notaGroupsEl.querySelector(`.nota-group[data-group-key="${cssEscape(key)}"]`);
+  if (!card) return;
+  const group = groupLines().find((g) => g.key === key);
+  if (!group) return;
+
+  const freight = freightByNf.get(key) || 0;
+  const shares = computeFreightShares(group.items, freight);
+
+  group.items.forEach((l, i) => {
+    const row = card.querySelector(`tr[data-uid="${cssEscape(l.uid)}"]`);
+    if (!row) return;
+    const share = shares[i];
+    const adjustedCost = round2(l.unitCost + (l.quantity ? share / l.quantity : 0));
+    const shareCell = row.querySelector('[data-cell="share"]');
+    const adjustedCell = row.querySelector('[data-cell="adjusted"]');
+    if (shareCell) shareCell.textContent = currency.format(share);
+    if (adjustedCell) adjustedCell.textContent = currency.format(adjustedCost);
+  });
+
+  const subtotalSum = round2(group.items.reduce((sum, l) => sum + l.quantity * l.unitCost, 0));
+  const subtotalEl = card.querySelector('[data-cell="totals-subtotal"]');
+  const freightEl = card.querySelector('[data-cell="totals-freight"]');
+  const grandEl = card.querySelector('[data-cell="totals-grand"]');
+  if (subtotalEl) subtotalEl.textContent = currency.format(subtotalSum);
+  if (freightEl) freightEl.textContent = currency.format(freight);
+  if (grandEl) grandEl.textContent = currency.format(round2(subtotalSum + freight));
+}
+
+notaGroupsEl.addEventListener('input', (e) => {
+  if (e.target.dataset.role !== 'freight-input') return;
+  const card = e.target.closest('.nota-group');
+  if (!card) return;
+  const key = card.dataset.groupKey;
+  const v = Number(e.target.value);
+  freightByNf.set(key, Number.isFinite(v) && v >= 0 ? v : 0);
+  updateGroupDisplay(key);
+});
+
+notaGroupsEl.addEventListener('change', (e) => {
   const row = e.target.closest('tr[data-uid]');
   if (!row) return;
   const field = e.target.dataset.field;
@@ -433,23 +549,34 @@ linesTableBody.addEventListener('change', (e) => {
   } else if (field === 'unitCost') {
     const v = Number(e.target.value);
     line.unitCost = Number.isFinite(v) && v >= 0 ? v : line.unitCost;
+  } else if (field === 'nf') {
+    // Editar a NF pode mover o item para outro grupo (ou criar um novo) -
+    // por isso, ao contrario dos outros campos, este exige recriar toda a
+    // lista de grupos.
+    line.nf = e.target.value.trim() || null;
   } else {
     line[field] = e.target.value.trim() || null;
   }
-  renderLines();
+  renderGroups();
 });
 
-linesTableBody.addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-action="remove-line"]');
-  if (!btn) return;
-  const row = btn.closest('tr[data-uid]');
-  lines = lines.filter((l) => l.uid !== row.dataset.uid);
-  renderLines();
+notaGroupsEl.addEventListener('click', (e) => {
+  const removeBtn = e.target.closest('[data-action="remove-line"]');
+  if (removeBtn) {
+    const row = removeBtn.closest('tr[data-uid]');
+    lines = lines.filter((l) => l.uid !== row.dataset.uid);
+    renderGroups();
+    return;
+  }
+
+  const finalizeGroupBtn = e.target.closest('[data-action="finalize-group"]');
+  if (finalizeGroupBtn) {
+    const card = finalizeGroupBtn.closest('.nota-group');
+    finalizeGroup(card.dataset.groupKey, finalizeGroupBtn);
+  }
 });
 
-freightInput.addEventListener('input', renderLines);
-
-// -------------------- Finalizar nota --------------------
+// -------------------- Finalizar uma nota (um grupo de NF) --------------------
 function showFinalizeMessage(text, type) {
   finalizeMessage.textContent = text;
   finalizeMessage.className = `form-message ${type}`;
@@ -459,25 +586,25 @@ function hideFinalizeMessage() {
   finalizeMessage.hidden = true;
 }
 
-finalizeBtn.addEventListener('click', async () => {
+async function finalizeGroup(key, buttonEl) {
   hideFinalizeMessage();
-  if (lines.length === 0) return;
+  const group = groupLines().find((g) => g.key === key);
+  if (!group || group.items.length === 0) return;
 
-  const referencedTempIds = new Set(lines.filter((l) => l.kind === 'new').map((l) => l.tempId));
-  const productsPayload = newProducts
-    .filter((p) => referencedTempIds.has(p.tempId))
-    .map((p) => ({
-      tempId: p.tempId,
-      code: String(p.code || '').trim(),
-      description: String(p.description || '').trim(),
-      category: String(p.category || '').trim(),
-      price: Number(p.price),
-      variants: p.variants,
-    }));
+  const referencedTempIds = new Set(group.items.filter((l) => l.kind === 'new').map((l) => l.tempId));
+  const createdProducts = newProducts.filter((p) => referencedTempIds.has(p.tempId));
+  const productsPayload = createdProducts.map((p) => ({
+    tempId: p.tempId,
+    code: String(p.code || '').trim(),
+    description: String(p.description || '').trim(),
+    category: String(p.category || '').trim(),
+    price: Number(p.price),
+    variants: p.variants,
+  }));
 
-  const freight = Number(freightInput.value) || 0;
-  const shares = computeFreightShares(lines, freight);
-  const linesPayload = lines.map((l, i) => ({
+  const freight = freightByNf.get(key) || 0;
+  const shares = computeFreightShares(group.items, freight);
+  const linesPayload = group.items.map((l, i) => ({
     rowNumber: l.uid,
     kind: l.kind,
     tempId: l.tempId,
@@ -493,7 +620,7 @@ finalizeBtn.addEventListener('click', async () => {
     freightShare: shares[i],
   }));
 
-  finalizeBtn.disabled = true;
+  if (buttonEl) buttonEl.disabled = true;
   try {
     const res = await authedFetch('/api/stock/import/commit', {
       method: 'POST',
@@ -502,15 +629,17 @@ finalizeBtn.addEventListener('click', async () => {
     });
     const data = await res.json();
 
-    if (data.partial) {
-      const postedUids = new Set(data.summary.postedRowNumbers);
-      // Todos os produtos novos enviados nesta tentativa ja foram criados
-      // (a falha aconteceu depois, no lancamento das compras) - as linhas
-      // restantes que apontavam para eles agora sao itens de um produto que
-      // ja existe no catalogo.
+    // Tanto na resposta de sucesso total (201) quanto na parcial (207) os
+    // produtos novos referenciados por este grupo ja foram criados no
+    // catalogo (a criacao dos produtos acontece antes do lancamento das
+    // compras, de forma atomica). Por isso, em ambos os casos, propagamos a
+    // conversao "produto novo -> produto existente" para QUALQUER linha em
+    // QUALQUER grupo que referencie o mesmo produto - assim, se a mesma peca
+    // aparecer em outra NF, a proxima finalizacao ja trata como existente.
+    if (res.ok || data.partial) {
       lines.forEach((l) => {
-        if (l.kind === 'new') {
-          const product = newProducts.find((p) => p.tempId === l.tempId);
+        if (l.kind === 'new' && referencedTempIds.has(l.tempId)) {
+          const product = createdProducts.find((p) => p.tempId === l.tempId);
           if (product) {
             l.kind = 'existing';
             l.productCode = product.code;
@@ -518,37 +647,44 @@ finalizeBtn.addEventListener('click', async () => {
           }
         }
       });
-      newProducts = [];
+      newProducts = newProducts.filter((p) => !referencedTempIds.has(p.tempId));
+    }
+
+    if (data.partial) {
+      const postedUids = new Set(data.summary.postedRowNumbers);
       lines = lines.filter((l) => !postedUids.has(l.uid));
       renderNewProducts();
-      renderLines();
-      showFinalizeMessage(data.error || 'Parte da nota foi lancada. Corrija a linha indicada e clique em "Finalizar nota" novamente para lancar o restante.', 'error');
+      renderGroups();
+      showFinalizeMessage(
+        `${group.label}: ${data.error || 'parte da nota foi lancada. Corrija a linha indicada e clique em "Finalizar esta nota" novamente para lancar o restante.'}`,
+        'error'
+      );
       await loadCatalog();
       return;
     }
 
     if (!res.ok) {
-      showFinalizeMessage(data.error || 'Erro ao finalizar a nota.', 'error');
+      showFinalizeMessage(`${group.label}: ${data.error || 'erro ao finalizar a nota.'}`, 'error');
       return;
     }
 
+    const postedUids = new Set(group.items.map((l) => l.uid));
+    lines = lines.filter((l) => !postedUids.has(l.uid));
+    freightByNf.delete(key);
+    renderNewProducts();
+    renderGroups();
     showFinalizeMessage(
-      `Nota lancada com sucesso: ${data.summary.productsCreated} produto(s) novo(s) e ${data.summary.movementsCreated} compra(s) registrada(s).`,
+      `${group.label} lancada com sucesso: ${data.summary.productsCreated} produto(s) novo(s) e ${data.summary.movementsCreated} compra(s) registrada(s).`,
       'success'
     );
-    newProducts = [];
-    lines = [];
-    freightInput.value = '0';
-    renderNewProducts();
-    renderLines();
     await loadCatalog();
   } catch (err) {
-    showFinalizeMessage('Erro de conexao com o servidor.', 'error');
+    showFinalizeMessage(`${group.label}: erro de conexao com o servidor.`, 'error');
   } finally {
-    finalizeBtn.disabled = lines.length === 0;
+    if (buttonEl) buttonEl.disabled = false;
   }
-});
+}
 
 // -------------------- Init --------------------
 renderNewProducts();
-renderLines();
+renderGroups();

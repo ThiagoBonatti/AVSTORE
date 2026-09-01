@@ -627,6 +627,28 @@ td.description-cell { white-space: normal; min-width: 160px; }
 }
 .lines-table-input.wide { width: 120px; }
 
+.nota-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.nota-group {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--color-bg);
+}
+.nota-group .card-header-row {
+  margin-bottom: 12px;
+}
+.nota-group .card-header-row h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.nota-group .table-wrapper {
+  margin: 0;
+}
+
 .nota-footer {
   display: flex;
   align-items: center;

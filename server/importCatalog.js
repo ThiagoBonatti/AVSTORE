@@ -21,6 +21,7 @@ const HEADER_ALIASES = {
   peca: ['peca', 'peça', 'produto', 'descricao'],
   tamanho: ['tamanho', 'tam'],
   cor: ['cor'],
+  categoria: ['categoria', 'categoria do produto'],
   quantidade: ['quantidade', 'qtd', 'qtde'],
   codigo: ['codigo', 'código', 'sku', 'codigo de barras', 'código de barras'],
   nf: ['nf', 'numero nf', 'nota fiscal'],
@@ -161,6 +162,7 @@ function parseWorkbookRows(buffer) {
       peca: collapseSpaces(get('peca')),
       tamanho: collapseSpaces(get('tamanho')),
       cor: collapseSpaces(get('cor')),
+      categoria: get('categoria') ? collapseSpaces(get('categoria')) : null,
       quantidade: get('quantidade'),
       codigo: normalizeCode(get('codigo')),
       nf: get('nf') !== null && get('nf') !== undefined && String(get('nf')).trim() !== '' ? String(get('nf')).trim() : null,
@@ -245,9 +247,19 @@ function buildImportPreview({ rows, existingItemCodeIndex, existingProductCodes 
 
       let staged = stagingByKey.get(baseKey);
       if (!staged) {
-        staged = { tempId: `novo-${stagingSeq}`, description: baseDisplay, colors: new Map() };
+        staged = { tempId: `novo-${stagingSeq}`, description: baseDisplay, colors: new Map(), category: null };
         stagingSeq += 1;
         stagingByKey.set(baseKey, staged);
+      }
+
+      if (row.categoria) {
+        if (!staged.category) {
+          staged.category = row.categoria;
+        } else if (normalizeKey(staged.category) !== normalizeKey(row.categoria)) {
+          warnings.push(
+            `Linha ${row.rowNumber}: categoria "${row.categoria}" difere da categoria "${staged.category}" ja identificada para "${baseDisplay}"; foi mantida a primeira.`
+          );
+        }
       }
 
       const colorDisplay = toTitleCase(colorFallback) || 'Sem cor';
@@ -323,7 +335,7 @@ function buildImportPreview({ rows, existingItemCodeIndex, existingProductCodes 
       tempId: staged.tempId,
       code,
       description: staged.description,
-      category: '',
+      category: staged.category ? toTitleCase(staged.category) : '',
       price: '',
       variants,
       include: true,
