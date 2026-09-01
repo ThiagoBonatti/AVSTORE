@@ -293,7 +293,8 @@ a { color: inherit; }
    o campo de fornecedor continuaria visivel mesmo com o atributo "hidden"
    definido via JS (mesma causa do bug ja corrigido para ".modal-overlay[hidden]"
    em public/css/style.css). */
-.product-form label.supplier-field[hidden] { display: none; }
+.product-form label.supplier-field[hidden],
+.product-form label.customer-field[hidden] { display: none; }
 
 .card-header-row {
   display: flex;
@@ -342,6 +343,139 @@ a { color: inherit; }
   display: flex;
   justify-content: center;
   margin-top: 14px;
+}
+
+/* Tela de Relatorios */
+.period-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+.period-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.period-preset-btn.active { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+.period-dates {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.period-dates label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.period-dates input {
+  padding: 8px 10px;
+  font-size: 0.88rem;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+}
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-bg);
+}
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--color-text);
+}
+.stat-value.stat-negative { color: var(--color-danger); }
+.stat-sublabel {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.chart-wrap {
+  padding-top: 8px;
+}
+.bar-chart-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 220px;
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 2px;
+}
+.bar-chart-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 100%;
+  min-width: 2px;
+  cursor: pointer;
+}
+.bar-chart-bar {
+  width: 100%;
+  background: var(--color-primary);
+  border-radius: 4px 4px 0 0;
+  min-height: 2px;
+  transition: background 0.15s ease;
+}
+.bar-chart-col:hover .bar-chart-bar { background: var(--color-accent); }
+.bar-chart-labels {
+  display: flex;
+  gap: 3px;
+  margin-top: 6px;
+}
+.bar-chart-label {
+  flex: 1;
+  min-width: 2px;
+  text-align: center;
+  font-size: 0.68rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.chart-tooltip {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  background: var(--color-primary);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+  margin-top: -6px;
+}
+
+.empty-state {
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 30px 0;
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .period-controls { flex-direction: column; align-items: stretch; }
 }
 
 /* Product table */

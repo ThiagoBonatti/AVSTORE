@@ -272,10 +272,11 @@ router.post('/', requireAuth, upload.any(), async (req, res) => {
       uploaded.push({ storagePath });
       v.imageUrl = url;
       v.imagePath = storagePath;
-      // Estoque de um produto novo comeca zerado em todos os tamanhos; as
-      // quantidades sao lancadas depois pela tela de compras (mini ERP,
-      // ver server/routes/stock.js).
+      // Estoque (e custo medio) de um produto novo comeca zerado em todos os
+      // tamanhos; as quantidades e custos sao lancados depois pela tela de
+      // compras (mini ERP, ver server/routes/stock.js).
       v.stock = Object.fromEntries(v.sizes.map((s) => [s, 0]));
+      v.avgCost = Object.fromEntries(v.sizes.map((s) => [s, 0]));
     }
 
     const colors = variants.map((v) => v.color);
@@ -397,16 +398,18 @@ router.put('/:code', requireAuth, upload.any(), async (req, res) => {
       for (const v of variants) {
         const prev = existingById.get(v.id);
         const prevStock = (prev && prev.stock) || {};
-        // Mantem a quantidade de cada tamanho que ja existia (mesmo que o
-        // tamanho tenha sido reordenado no formulario); tamanhos novos
-        // comecam com estoque zero, a ser lancado na tela de compras.
+        const prevAvgCost = (prev && prev.avgCost) || {};
+        // Mantem a quantidade (e o custo medio) de cada tamanho que ja
+        // existia (mesmo que o tamanho tenha sido reordenado no formulario);
+        // tamanhos novos comecam zerados, a ser lancados na tela de compras.
         const stock = Object.fromEntries(v.sizes.map((s) => [s, Number(prevStock[s] || 0)]));
+        const avgCost = Object.fromEntries(v.sizes.map((s) => [s, Number(prevAvgCost[s] || 0)]));
 
         const file = filesMap.get(variantImageFieldName(v.id));
         if (file) {
           const { url, storagePath } = await uploadProductImage(code, v.id, file);
           uploaded.push({ storagePath });
-          finalVariants.push({ id: v.id, color: v.color, sizes: v.sizes, imageUrl: url, imagePath: storagePath, stock });
+          finalVariants.push({ id: v.id, color: v.color, sizes: v.sizes, imageUrl: url, imagePath: storagePath, stock, avgCost });
         } else {
           finalVariants.push({
             id: v.id,
@@ -415,6 +418,7 @@ router.put('/:code', requireAuth, upload.any(), async (req, res) => {
             imageUrl: prev.imageUrl,
             imagePath: prev.imagePath,
             stock,
+            avgCost,
           });
         }
       }

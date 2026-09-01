@@ -14,6 +14,7 @@
     <nav class="admin-nav">
       <a href="/admin/dashboard.html" class="admin-nav-link">Produtos</a>
       <a href="/admin/estoque.html" class="admin-nav-link active">Compras, vendas e estoque</a>
+      <a href="/admin/relatorios.html" class="admin-nav-link">Relatorios</a>
     </nav>
     <div class="admin-header-actions">
       <span class="admin-username" id="admin-username"></span>
@@ -72,6 +73,15 @@
           <input type="text" id="mv-supplier-contact" placeholder="Telefone, WhatsApp ou e-mail" />
         </label>
 
+        <label class="full customer-field">
+          Cliente <span class="field-hint">(opcional, mas ajuda no relatorio de vendas por cliente)</span>
+          <input type="text" id="mv-customer-name" placeholder="Nome do cliente" />
+        </label>
+        <label class="full customer-field">
+          Contato do cliente <span class="field-hint">(opcional)</span>
+          <input type="text" id="mv-customer-contact" placeholder="Telefone ou WhatsApp" />
+        </label>
+
         <label class="full">
           Observacao <span class="field-hint">(opcional)</span>
           <input type="text" id="mv-note" placeholder="Ex.: pedido #123, troca, ajuste de inventario..." />
@@ -128,7 +138,8 @@
               <th>Qtd</th>
               <th>Valor unit.</th>
               <th>Valor total</th>
-              <th>Fornecedor</th>
+              <th>Margem</th>
+              <th>Fornecedor / Cliente</th>
               <th>Usuario</th>
               <th>Acoes</th>
             </tr>

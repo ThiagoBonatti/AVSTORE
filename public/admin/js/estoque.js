@@ -28,6 +28,9 @@ const unitPriceInput = document.getElementById('mv-unit-price');
 const supplierFields = document.querySelectorAll('.supplier-field');
 const supplierNameInput = document.getElementById('mv-supplier-name');
 const supplierContactInput = document.getElementById('mv-supplier-contact');
+const customerFields = document.querySelectorAll('.customer-field');
+const customerNameInput = document.getElementById('mv-customer-name');
+const customerContactInput = document.getElementById('mv-customer-contact');
 const noteInput = document.getElementById('mv-note');
 const mvMessage = document.getElementById('mv-message');
 const submitBtn = document.getElementById('mv-submit-btn');
@@ -98,6 +101,7 @@ function setMovementType(type) {
   movementType = type;
   typeToggleBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.type === type));
   supplierFields.forEach((el) => (el.hidden = type !== 'purchase'));
+  customerFields.forEach((el) => (el.hidden = type !== 'sale'));
   priceLabel.textContent = type === 'purchase' ? 'Custo unitario (R$)' : 'Preco unitario (R$)';
   submitBtn.textContent = type === 'purchase' ? 'Lancar compra' : 'Lancar venda';
 
@@ -258,6 +262,12 @@ form.addEventListener('submit', async (e) => {
       contact: supplierContactInput.value.trim(),
     };
   }
+  if (movementType === 'sale' && customerNameInput.value.trim()) {
+    payload.customer = {
+      name: customerNameInput.value.trim(),
+      contact: customerContactInput.value.trim(),
+    };
+  }
 
   if (!payload.code || !payload.variantId || !payload.size) {
     showMvMessage('Selecione o produto, a cor e o tamanho.', 'error');
@@ -324,14 +334,19 @@ function renderHistory() {
   });
 
   if (filtered.length === 0) {
-    historyTableBody.innerHTML = '<tr class="empty-row"><td colspan="10">Nenhuma movimentacao encontrada.</td></tr>';
+    historyTableBody.innerHTML = '<tr class="empty-row"><td colspan="11">Nenhuma movimentacao encontrada.</td></tr>';
     return;
   }
 
   filtered.forEach((m) => {
     const tr = document.createElement('tr');
     if (m.cancelled) tr.className = 'movement-cancelled';
-    const supplierText = m.supplier && m.supplier.name ? escapeHtml(m.supplier.name) : '-';
+    const partyText = m.type === 'purchase'
+      ? (m.supplier && m.supplier.name ? escapeHtml(m.supplier.name) : '-')
+      : (m.customer && m.customer.name ? escapeHtml(m.customer.name) : '-');
+    const marginText = m.type === 'sale' && m.marginTotal != null
+      ? `<span class="${m.marginTotal < 0 ? 'stock-out' : ''}">${currency.format(m.marginTotal)}</span>`
+      : '-';
     const actionCell = m.cancelled
       ? '<span class="field-hint">Cancelada</span>'
       : `<button class="btn btn-ghost btn-sm" data-action="cancel" data-id="${m.id}">Cancelar</button>`;
@@ -344,7 +359,8 @@ function renderHistory() {
       <td>${m.quantity}</td>
       <td>${currency.format(m.unitPrice)}</td>
       <td>${currency.format(m.totalPrice)}</td>
-      <td>${supplierText}</td>
+      <td>${marginText}</td>
+      <td>${partyText}</td>
       <td>${escapeHtml(m.createdByEmail || '')}</td>
       <td>${actionCell}</td>
     `;
