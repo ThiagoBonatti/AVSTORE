@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AVSTORE Admin - Nota de Compra</title>
+<link rel="icon" type="image/png" href="/img/favicon-32.png" />
+<link rel="apple-touch-icon" href="/img/favicon-180.png" />
+<link rel="stylesheet" href="/admin/css/admin.css" />
+</head>
+<body>
+  <header class="admin-header">
+    <div class="admin-logo"><img src="/img/logo.png" alt="AVSTORE" class="admin-logo-img" /><span>Admin</span></div>
+    <nav class="admin-nav">
+      <a href="/admin/dashboard.html" class="admin-nav-link">Produtos</a>
+      <a href="/admin/estoque.html" class="admin-nav-link">Compras, vendas e estoque</a>
+      <a href="/admin/nota-compra.html" class="admin-nav-link active">Nota de compra</a>
+      <a href="/admin/relatorios.html" class="admin-nav-link">Relatorios</a>
+    </nav>
+    <div class="admin-header-actions">
+      <span class="admin-username" id="admin-username"></span>
+      <a href="/" class="btn btn-ghost btn-sm">Ver loja</a>
+      <button id="logout-btn" class="btn btn-ghost btn-sm">Sair</button>
+    </div>
+  </header>
+
+  <main class="admin-main">
+    <section class="admin-card">
+      <h2>Importar planilha de compra</h2>
+      <p class="variants-hint">
+        Envie a planilha de controle de estoque (.xlsx, aba "CONTROLE ESTOQUE"). Cada codigo de item ja
+        cadastrado no catalogo vira apenas uma entrada de compra (nada e cadastrado em duplicidade); codigos
+        novos viram propostas de produto para voce revisar abaixo antes de confirmar. As fotos nao sao
+        importadas - inclua manualmente depois, na tela de Produtos.
+      </p>
+      <div class="import-upload-row">
+        <input type="file" id="import-file-input" accept=".xlsx" />
+        <button type="button" id="import-btn" class="btn btn-primary btn-sm">Importar planilha</button>
+        <span id="import-status" class="field-hint"></span>
+      </div>
+      <div id="import-feedback" class="import-feedback" hidden></div>
+    </section>
+
+    <section class="admin-card" id="new-products-section" hidden>
+      <h2>Produtos novos encontrados na planilha</h2>
+      <p class="variants-hint">
+        Revise a descricao, escolha uma categoria e defina o preco de venda de cada produto antes de
+        finalizar a nota. Cores, tamanhos e codigos vieram da planilha e nao sao editaveis aqui - se algo
+        estiver errado, remova o produto e cadastre-o manualmente depois.
+      </p>
+      <div id="new-products-list" class="new-products-list"></div>
+      <datalist id="category-list"></datalist>
+    </section>
+
+    <section class="admin-card">
+      <h2>Adicionar item manualmente</h2>
+      <form id="manual-item-form" class="product-form">
+        <label class="full">
+          Produto (ja cadastrado)
+          <select id="manual-product">
+            <option value="">Selecione um produto...</option>
+          </select>
+        </label>
+        <label>
+          Cor
+          <select id="manual-color" disabled>
+            <option value="">Selecione a cor...</option>
+          </select>
+        </label>
+        <label>
+          Tamanho
+          <select id="manual-size" disabled>
+            <option value="">Selecione o tamanho...</option>
+          </select>
+        </label>
+        <label>
+          Quantidade
+          <input type="number" id="manual-quantity" min="1" step="1" value="1" />
+        </label>
+        <label>
+          Custo unitario (R$)
+          <input type="number" id="manual-unit-cost" min="0" step="0.01" />
+        </label>
+        <label>
+          Fornecedor <span class="field-hint">(opcional)</span>
+          <input type="text" id="manual-fornecedor" placeholder="Nome do fornecedor" />
+        </label>
+        <label>
+          NF <span class="field-hint">(opcional)</span>
+          <input type="text" id="manual-nf" placeholder="Numero da nota" />
+        </label>
+        <label>
+          Data da NF <span class="field-hint">(opcional)</span>
+          <input type="date" id="manual-data-nf" />
+        </label>
+        <div class="form-actions">
+          <button type="button" id="manual-add-btn" class="btn btn-ghost">+ Adicionar item a nota</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="admin-card">
+      <div class="card-header-row">
+        <h2>Itens desta nota (<span id="lines-count">0</span>)</h2>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Produto</th>
+              <th>Cor</th>
+              <th>Tamanho</th>
+              <th>Codigo</th>
+              <th>Fornecedor</th>
+              <th>NF</th>
+              <th>Qtd</th>
+              <th>Custo unit.</th>
+              <th>Rateio frete</th>
+              <th>Custo c/ frete</th>
+              <th>Subtotal</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="lines-table-body"></tbody>
+        </table>
+      </div>
+
+      <div class="nota-footer">
+        <label class="nota-freight-field">
+          Frete total desta nota (R$)
+          <input type="number" id="freight-input" min="0" step="0.01" value="0" />
+        </label>
+        <div class="nota-totals">
+          <span>Subtotal: <strong id="totals-subtotal">R$ 0,00</strong></span>
+          <span>Frete: <strong id="totals-freight">R$ 0,00</strong></span>
+          <span>Total com frete: <strong id="totals-grand">R$ 0,00</strong></span>
+        </div>
+        <button type="button" id="finalize-btn" class="btn btn-primary" disabled>Finalizar nota</button>
+      </div>
+      <p id="finalize-message" class="form-message" hidden></p>
+    </section>
+  </main>
+
+  <script type="module" src="/admin/js/nota-compra.js"></script>
+</body>
+</html>

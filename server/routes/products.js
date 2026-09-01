@@ -33,6 +33,7 @@ function serializeProduct(doc) {
       id: v.id,
       color: v.color,
       sizes: Array.isArray(v.sizes) ? v.sizes : [],
+      itemCodes: v.itemCodes && typeof v.itemCodes === 'object' ? v.itemCodes : {},
       imageUrl: v.imageUrl || null,
     })),
     colors: Array.isArray(data.colors) ? data.colors : [],
@@ -90,6 +91,7 @@ function parseVariants(raw) {
   }
 
   const seenColors = new Set();
+  const seenItemCodes = new Set();
   const variants = [];
 
   for (const raw_v of parsed) {
@@ -107,7 +109,28 @@ function parseVariants(raw) {
     if (seenColors.has(colorKey)) throw new Error(`A cor "${color}" foi informada mais de uma vez.`);
     seenColors.add(colorKey);
 
-    variants.push({ id, color, sizes });
+    // Codigo do item (SKU) por tamanho - opcional, usado para controle
+    // interno/codigo de barras. So mantem codigos referentes a tamanhos
+    // realmente cadastrados na variacao, e nao permite o mesmo codigo em
+    // mais de um tamanho/cor do mesmo produto.
+    const itemCodes = {};
+    if (raw_v.itemCodes && typeof raw_v.itemCodes === 'object') {
+      for (const size of sizes) {
+        const rawCode = raw_v.itemCodes[size];
+        if (rawCode === undefined || rawCode === null) continue;
+        const codeValue = String(rawCode).trim();
+        if (!codeValue) continue;
+
+        const codeKey = normalize(codeValue);
+        if (seenItemCodes.has(codeKey)) {
+          throw new Error(`O codigo do item "${codeValue}" foi informado mais de uma vez.`);
+        }
+        seenItemCodes.add(codeKey);
+        itemCodes[size] = codeValue;
+      }
+    }
+
+    variants.push({ id, color, sizes, itemCodes });
   }
 
   return variants;
@@ -409,12 +432,22 @@ router.put('/:code', requireAuth, upload.any(), async (req, res) => {
         if (file) {
           const { url, storagePath } = await uploadProductImage(code, v.id, file);
           uploaded.push({ storagePath });
-          finalVariants.push({ id: v.id, color: v.color, sizes: v.sizes, imageUrl: url, imagePath: storagePath, stock, avgCost });
+          finalVariants.push({
+            id: v.id,
+            color: v.color,
+            sizes: v.sizes,
+            itemCodes: v.itemCodes || {},
+            imageUrl: url,
+            imagePath: storagePath,
+            stock,
+            avgCost,
+          });
         } else {
           finalVariants.push({
             id: v.id,
             color: v.color,
             sizes: v.sizes,
+            itemCodes: v.itemCodes || {},
             imageUrl: prev.imageUrl,
             imagePath: prev.imagePath,
             stock,

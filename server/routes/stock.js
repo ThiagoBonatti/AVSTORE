@@ -1,10 +1,18 @@
 const express = require('express');
 const { db, FieldValue } = require('../firebase');
 const { requireAuth } = require('../middleware/auth');
+const { uploadSheet } = require('../middleware/uploadSheet');
+const { buildSearchKeywords } = require('../searchKeywords');
+const { parseWorkbookRows, buildImportPreview } = require('../importCatalog');
 
 const router = express.Router();
 const productsRef = db.collection('products');
 const movementsRef = db.collection('stockMovements');
+const filtersDocRef = db.collection('meta').doc('catalog');
+
+// Mesmo padrao de server/routes/products.js: o codigo do produto vira o ID
+// do documento no Firestore.
+const CODE_PATTERN = /^[A-Za-z0-9._-]+$/;
 
 // Todas as rotas deste arquivo sao da area restrita (mini ERP de compras,
 // vendas e estoque) e exigem um admin autenticado.
@@ -61,6 +69,9 @@ function serializeMovement(doc) {
     supplier: data.supplier || null,
     customer: data.customer || null,
     note: data.note || null,
+    nf: data.nf || null,
+    invoiceDate: data.invoiceDate || null,
+    freightShare: data.freightShare ?? null,
     stockAfter: data.stockAfter,
     cancelled: Boolean(data.cancelled),
     createdByEmail: data.createdByEmail || null,
@@ -241,6 +252,113 @@ router.get('/report', async (req, res) => {
   }
 });
 
+// Executa uma transacao de compra ou venda para uma cor/tamanho especifico
+// de um produto ja cadastrado, atualizando o estoque (e o custo medio
+// ponderado) de forma atomica. Extraido para uma funcao a parte porque e
+// usado tanto pelo lancamento manual (POST /movements abaixo) quanto pela
+// importacao em lote de nota de compra (POST /import/commit, mais abaixo),
+// que precisa lancar varias compras seguidas com a mesma logica exata.
+async function runStockMovementTransaction({
+  type,
+  code,
+  variantId,
+  size,
+  quantity,
+  unitPrice,
+  note = null,
+  supplier = null,
+  customer = null,
+  nf = null,
+  invoiceDate = null,
+  freightShare = null,
+  createdByEmail,
+}) {
+  const docRef = productsRef.doc(code);
+
+  return db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(docRef);
+    if (!snap.exists) throw new HttpError(404, `Produto "${code}" nao encontrado.`);
+
+    const data = snap.data();
+    const variants = Array.isArray(data.variants) ? data.variants : [];
+    const idx = variants.findIndex((v) => v.id === variantId);
+    if (idx < 0) throw new HttpError(404, `Variacao (cor) nao encontrada para o produto "${code}".`);
+
+    const variant = variants[idx];
+    if (!Array.isArray(variant.sizes) || !variant.sizes.includes(size)) {
+      throw new HttpError(400, `O tamanho "${size}" nao existe para a cor "${variant.color}" (produto ${code}).`);
+    }
+
+    const currentQty = Number((variant.stock && variant.stock[size]) || 0);
+    const currentAvgCost = Number((variant.avgCost && variant.avgCost[size]) || 0);
+
+    if (type === 'sale' && quantity > currentQty) {
+      throw new HttpError(
+        400,
+        `Estoque insuficiente para ${variant.color} / ${size}. Disponivel: ${currentQty} unidade(s).`
+      );
+    }
+
+    const totalPrice = Math.round(unitPrice * quantity * 100) / 100;
+
+    let newQty;
+    let newAvgCost;
+    let costAtSale = null;
+    let marginTotal = null;
+
+    if (type === 'purchase') {
+      // Custo medio ponderado: mistura o custo do estoque que ja existia
+      // com o custo desta compra, na proporcao das quantidades. E o que
+      // permite calcular a margem de uma venda mesmo quando o produto foi
+      // comprado em lotes com custos diferentes.
+      newQty = currentQty + quantity;
+      newAvgCost = newQty > 0 ? (currentAvgCost * currentQty + unitPrice * quantity) / newQty : 0;
+    } else {
+      newQty = currentQty - quantity;
+      newAvgCost = currentAvgCost; // vender nao muda o custo medio do que sobrou
+      costAtSale = currentAvgCost;
+      marginTotal = Math.round((unitPrice - currentAvgCost) * quantity * 100) / 100;
+    }
+
+    const newVariants = variants.slice();
+    newVariants[idx] = {
+      ...variant,
+      stock: { ...(variant.stock || {}), [size]: newQty },
+      avgCost: { ...(variant.avgCost || {}), [size]: newAvgCost },
+    };
+    transaction.update(docRef, { variants: newVariants });
+
+    const movementRef = movementsRef.doc();
+    const movementData = {
+      type,
+      code,
+      description: data.description,
+      variantId,
+      color: variant.color,
+      size,
+      quantity,
+      unitPrice,
+      totalPrice,
+      costAtSale,
+      marginTotal,
+      supplier,
+      customer,
+      note,
+      nf,
+      invoiceDate,
+      freightShare,
+      stockAfter: newQty,
+      cancelled: false,
+      cancelledAt: null,
+      createdByEmail,
+      createdAt: FieldValue.serverTimestamp(),
+    };
+    transaction.set(movementRef, movementData);
+
+    return { id: movementRef.id, ...movementData, createdAt: new Date().toISOString() };
+  });
+}
+
 // POST /api/stock/movements - lanca uma compra (entrada) ou venda (saida)
 // para uma cor/tamanho especifico de um produto ja cadastrado, atualizando
 // o estoque daquela variacao de forma atomica (transacao do Firestore).
@@ -279,88 +397,18 @@ router.post('/movements', async (req, res) => {
   if (errors.length) return res.status(400).json({ error: errors.join(' ') });
 
   try {
-    const docRef = productsRef.doc(code);
-
-    const movement = await db.runTransaction(async (transaction) => {
-      const snap = await transaction.get(docRef);
-      if (!snap.exists) throw new HttpError(404, 'Produto nao encontrado.');
-
-      const data = snap.data();
-      const variants = Array.isArray(data.variants) ? data.variants : [];
-      const idx = variants.findIndex((v) => v.id === variantId);
-      if (idx < 0) throw new HttpError(404, 'Variacao (cor) nao encontrada para este produto.');
-
-      const variant = variants[idx];
-      if (!Array.isArray(variant.sizes) || !variant.sizes.includes(size)) {
-        throw new HttpError(400, `O tamanho "${size}" nao existe para a cor "${variant.color}".`);
-      }
-
-      const currentQty = Number((variant.stock && variant.stock[size]) || 0);
-      const currentAvgCost = Number((variant.avgCost && variant.avgCost[size]) || 0);
-
-      if (type === 'sale' && quantity > currentQty) {
-        throw new HttpError(
-          400,
-          `Estoque insuficiente para ${variant.color} / ${size}. Disponivel: ${currentQty} unidade(s).`
-        );
-      }
-
-      const totalPrice = Math.round(unitPrice * quantity * 100) / 100;
-
-      let newQty;
-      let newAvgCost;
-      let costAtSale = null;
-      let marginTotal = null;
-
-      if (type === 'purchase') {
-        // Custo medio ponderado: mistura o custo do estoque que ja existia
-        // com o custo desta compra, na proporcao das quantidades. E o que
-        // permite calcular a margem de uma venda mesmo quando o produto foi
-        // comprado em lotes com custos diferentes.
-        newQty = currentQty + quantity;
-        newAvgCost = newQty > 0 ? (currentAvgCost * currentQty + unitPrice * quantity) / newQty : 0;
-      } else {
-        newQty = currentQty - quantity;
-        newAvgCost = currentAvgCost; // vender nao muda o custo medio do que sobrou
-        costAtSale = currentAvgCost;
-        marginTotal = Math.round((unitPrice - currentAvgCost) * quantity * 100) / 100;
-      }
-
-      const newVariants = variants.slice();
-      newVariants[idx] = {
-        ...variant,
-        stock: { ...(variant.stock || {}), [size]: newQty },
-        avgCost: { ...(variant.avgCost || {}), [size]: newAvgCost },
-      };
-      transaction.update(docRef, { variants: newVariants });
-
-      const movementRef = movementsRef.doc();
-      const movementData = {
-        type,
-        code,
-        description: data.description,
-        variantId,
-        color: variant.color,
-        size,
-        quantity,
-        unitPrice,
-        totalPrice,
-        costAtSale,
-        marginTotal,
-        supplier,
-        customer,
-        note,
-        stockAfter: newQty,
-        cancelled: false,
-        cancelledAt: null,
-        createdByEmail: req.admin.email,
-        createdAt: FieldValue.serverTimestamp(),
-      };
-      transaction.set(movementRef, movementData);
-
-      return { id: movementRef.id, ...movementData, createdAt: new Date().toISOString() };
+    const movement = await runStockMovementTransaction({
+      type,
+      code,
+      variantId,
+      size,
+      quantity,
+      unitPrice,
+      note,
+      supplier,
+      customer,
+      createdByEmail: req.admin.email,
     });
-
     res.status(201).json(movement);
   } catch (err) {
     if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
@@ -438,6 +486,279 @@ router.delete('/movements/:id', async (req, res) => {
     console.error(err);
     res.status(500).json({ error: 'Erro ao cancelar a movimentacao.' });
   }
+});
+
+// -------------------- Importacao de nota de compra / planilha --------------------
+// Fluxo em duas etapas:
+//   1) POST /import/preview - le a planilha (.xlsx) enviada, casa cada
+//      "Codigo" com o catalogo ja cadastrado (nao registra nada em duplicado)
+//      e propõe os produtos novos agrupados por cor/tamanho. Nao grava nada.
+//   2) POST /import/commit - recebe de volta a mesma estrutura (ja revisada/
+//      editada pelo admin na tela) e efetivamente cria os produtos novos e
+//      lanca as compras. Tambem e o endpoint usado pela tela de "Nota de
+//      compra" para lancamento manual (sem planilha): nesse caso so ha linhas
+//      "existing" e nenhum produto novo.
+//
+// O rateio do frete e calculado no navegador (public/admin/js/nota-compra.js)
+// sobre TODAS as linhas da nota de uma vez só, e cada linha ja chega aqui com
+// o valor de "freightShare" (parte do frete) decidido. Isso evita recalcular
+// o rateio si a nota for reenviada parcialmente apos uma falha (ver abaixo) -
+// cada linha ja carrega seu proprio valor final, entao reenviar so o que
+// faltou nao aplica o frete errado.
+
+async function buildExistingCatalogIndex() {
+  const snapshot = await productsRef.get();
+  const existingItemCodeIndex = new Map();
+  const existingProductCodes = new Set();
+
+  snapshot.docs.forEach((doc) => {
+    const data = doc.data() || {};
+    existingProductCodes.add(doc.id);
+    const variants = Array.isArray(data.variants) ? data.variants : [];
+    variants.forEach((v) => {
+      const itemCodes = v.itemCodes && typeof v.itemCodes === 'object' ? v.itemCodes : {};
+      Object.entries(itemCodes).forEach(([size, code]) => {
+        const key = String(code || '').trim();
+        if (!key) return;
+        existingItemCodeIndex.set(key, {
+          kind: 'existing',
+          code: doc.id,
+          description: data.description,
+          variantId: v.id,
+          color: v.color,
+          size,
+        });
+      });
+    });
+  });
+
+  return { existingItemCodeIndex, existingProductCodes };
+}
+
+// Mesma logica de server/routes/products.js (nao exportada de la), usada
+// aqui para manter a lista de categorias/cores em meta/catalog em dia quando
+// a importacao cria produtos novos.
+async function updateFiltersMeta(category, colors) {
+  const uniqueColors = [...new Set((colors || []).filter(Boolean))];
+  if (uniqueColors.length === 0) {
+    await filtersDocRef.set({ categories: FieldValue.arrayUnion(category) }, { merge: true });
+    return;
+  }
+  await filtersDocRef.set(
+    { categories: FieldValue.arrayUnion(category), colors: FieldValue.arrayUnion(...uniqueColors) },
+    { merge: true }
+  );
+}
+
+// POST /api/stock/import/preview - le a planilha enviada e devolve a previa
+// (nao grava nada no banco).
+router.post('/import/preview', uploadSheet.single('file'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Envie um arquivo .xlsx.' });
+
+  try {
+    const { sheetName, rows } = parseWorkbookRows(req.file.buffer);
+    const { existingItemCodeIndex, existingProductCodes } = await buildExistingCatalogIndex();
+    const preview = buildImportPreview({ rows, existingItemCodeIndex, existingProductCodes });
+    res.json({ sheetName, ...preview });
+  } catch (err) {
+    if (err && err.message) return res.status(400).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao processar a planilha.' });
+  }
+});
+
+// POST /api/stock/import/commit - cria os produtos novos (em lote, tudo ou
+// nada) e depois lanca as compras uma a uma. Cada linha ja chega com
+// "unitCost" (custo original) e "freightShare" (parte do frete ja calculada
+// no navegador) - o custo final lançado e unitCost + freightShare/quantidade.
+router.post('/import/commit', async (req, res) => {
+  const body = req.body || {};
+  const rawNewProducts = Array.isArray(body.newProducts) ? body.newProducts : [];
+  const rawPurchaseLines = Array.isArray(body.purchaseLines) ? body.purchaseLines : [];
+
+  const productsToCreate = rawNewProducts.filter((p) => p && p.include !== false);
+  const linesToPost = rawPurchaseLines.filter((l) => l && l.include !== false);
+
+  if (linesToPost.length === 0) {
+    return res.status(400).json({ error: 'Nenhum item para lancar. Adicione ao menos um item a nota.' });
+  }
+
+  const { existingProductCodes } = await buildExistingCatalogIndex();
+  const errors = [];
+  const seenNewCodes = new Set();
+  const productsByTempId = new Map();
+
+  productsToCreate.forEach((p, i) => {
+    const tempId = String((p && p.tempId) || '').trim();
+    const code = String((p && p.code) || '').trim();
+    const description = String((p && p.description) || '').trim();
+    const category = String((p && p.category) || '').trim();
+    const price = Number(p && p.price);
+    const variants = Array.isArray(p && p.variants) ? p.variants : [];
+    const label = description || code || `#${i + 1}`;
+
+    if (!tempId) errors.push(`Produto novo "${label}" sem identificador interno (recarregue a previa).`);
+    if (!code || !CODE_PATTERN.test(code)) {
+      errors.push(`Codigo invalido para "${label}" (use letras, numeros, ponto, hifen ou underscore).`);
+    } else if (existingProductCodes.has(code) || seenNewCodes.has(code)) {
+      errors.push(`O codigo de produto "${code}" ja esta em uso. Escolha outro para "${label}".`);
+    } else {
+      seenNewCodes.add(code);
+    }
+    if (!description) errors.push(`Informe a descricao do produto "${label}".`);
+    if (!category) errors.push(`Informe a categoria do produto "${label}".`);
+    if (!Number.isFinite(price) || price < 0) errors.push(`Informe um preco de venda valido para "${label}".`);
+    if (variants.length === 0) errors.push(`O produto "${label}" ficou sem nenhuma cor/tamanho.`);
+
+    const cleanVariants = variants.map((v, vi) => ({
+      id: String((v && v.id) || `v${vi + 1}`).trim(),
+      color: String((v && v.color) || '').trim(),
+      sizes: Array.isArray(v && v.sizes) ? v.sizes.map((s) => String(s).trim()).filter(Boolean) : [],
+      itemCodes: v && v.itemCodes && typeof v.itemCodes === 'object' ? v.itemCodes : {},
+    }));
+
+    if (tempId) productsByTempId.set(tempId, { tempId, code, description, category, price, variants: cleanVariants });
+  });
+
+  linesToPost.forEach((line) => {
+    const label = `Linha ${line && line.rowNumber ? line.rowNumber : '?'}`;
+    const quantity = Number(line && line.quantity);
+    const unitCost = Number(line && line.unitCost);
+    const freightShare = Number((line && line.freightShare) || 0);
+
+    if (!Number.isInteger(quantity) || quantity <= 0) errors.push(`${label}: quantidade invalida.`);
+    if (!Number.isFinite(unitCost) || unitCost < 0) errors.push(`${label}: custo unitario invalido.`);
+    if (!Number.isFinite(freightShare) || freightShare < 0) errors.push(`${label}: rateio de frete invalido.`);
+
+    if (!line || (line.kind !== 'existing' && line.kind !== 'new')) {
+      errors.push(`${label}: tipo de item invalido.`);
+    } else if (line.kind === 'existing') {
+      if (!line.productCode || !line.variantId || !line.size) errors.push(`${label}: item existente sem produto/cor/tamanho.`);
+    } else if (line.kind === 'new') {
+      if (!line.tempId || !productsByTempId.has(String(line.tempId))) {
+        errors.push(`${label}: produto novo associado nao foi encontrado (talvez tenha sido removido da revisao).`);
+      } else if (!line.variantId || !line.size) {
+        errors.push(`${label}: item novo sem cor/tamanho.`);
+      }
+    }
+  });
+
+  if (errors.length) {
+    return res.status(400).json({ error: errors.slice(0, 15).join(' '), errors });
+  }
+
+  // -------- Cria os produtos novos, todos de uma vez (lote atomico) --------
+  const productsList = Array.from(productsByTempId.values());
+  try {
+    if (productsList.length) {
+      const batch = db.batch();
+      const filtersToUpdate = [];
+
+      for (const p of productsList) {
+        const variants = p.variants.map((v) => ({
+          id: v.id,
+          color: v.color,
+          sizes: v.sizes,
+          itemCodes: v.itemCodes,
+          imageUrl: null,
+          imagePath: null,
+          stock: Object.fromEntries(v.sizes.map((s) => [s, 0])),
+          avgCost: Object.fromEntries(v.sizes.map((s) => [s, 0])),
+        }));
+        const colors = variants.map((v) => v.color);
+        const sizes = [...new Set(variants.flatMap((v) => v.sizes))];
+        filtersToUpdate.push({ category: p.category, colors });
+
+        batch.create(productsRef.doc(p.code), {
+          description: p.description,
+          category: p.category,
+          price: p.price,
+          variants,
+          colors,
+          sizes,
+          searchKeywords: buildSearchKeywords(p.code, p.description),
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+      await Promise.all(filtersToUpdate.map((f) => updateFiltersMeta(f.category, f.colors)));
+    }
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      error: 'Erro ao criar os produtos novos - nenhum item desta nota foi lancado. Verifique os codigos e tente novamente.',
+    });
+  }
+
+  // -------- Lanca as compras, uma a uma (cada uma e sua propria transacao) --------
+  const round2 = (n) => Math.round(n * 100) / 100;
+  const posted = [];
+  let failure = null;
+
+  for (const line of linesToPost) {
+    const quantity = Number(line.quantity);
+    const unitCost = Number(line.unitCost);
+    const freightShare = Number(line.freightShare || 0);
+    const adjustedUnitCost = round2(unitCost + freightShare / quantity);
+
+    const productCode = line.kind === 'new' ? productsByTempId.get(String(line.tempId)).code : line.productCode;
+    const supplier = line.fornecedor && String(line.fornecedor).trim()
+      ? { name: String(line.fornecedor).trim(), contact: '' }
+      : null;
+
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const movement = await runStockMovementTransaction({
+        type: 'purchase',
+        code: productCode,
+        variantId: line.variantId,
+        size: line.size,
+        quantity,
+        unitPrice: adjustedUnitCost,
+        note: line.nf ? `Nota de compra (NF ${line.nf}).` : 'Nota de compra.',
+        supplier,
+        nf: line.nf || null,
+        invoiceDate: line.dataNF || null,
+        freightShare,
+        createdByEmail: req.admin.email,
+      });
+      posted.push({ rowNumber: line.rowNumber, movementId: movement.id });
+    } catch (err) {
+      failure = { rowNumber: line.rowNumber, error: err instanceof HttpError ? err.message : 'Erro ao lancar esta linha.' };
+      break;
+    }
+  }
+
+  const totalFreightApplied = posted.length
+    ? round2(
+        linesToPost
+          .filter((l) => posted.some((p) => p.rowNumber === l.rowNumber))
+          .reduce((sum, l) => sum + Number(l.freightShare || 0), 0)
+      )
+    : 0;
+
+  const summary = {
+    productsCreated: productsList.length,
+    movementsCreated: posted.length,
+    totalLines: linesToPost.length,
+    totalFreightApplied,
+    postedRowNumbers: posted.map((p) => p.rowNumber),
+  };
+
+  if (failure) {
+    return res.status(207).json({
+      partial: true,
+      summary,
+      failure,
+      error:
+        `Foram lancadas ${posted.length} de ${linesToPost.length} linha(s) antes de um erro na linha ${failure.rowNumber} ` +
+        `(${failure.error}). Os produtos novos ja foram criados. Corrija o problema e reenvie so as linhas restantes.`,
+    });
+  }
+
+  res.status(201).json({ ok: true, summary });
 });
 
 module.exports = router;

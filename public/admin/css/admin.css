@@ -253,11 +253,70 @@ a { color: inherit; }
   border-radius: 8px;
   font-weight: 400;
 }
+/* Base do botao "X" usado para remover uma variacao/linha (a folha de
+   estilo da loja publica ja tem esta mesma regra em public/css/style.css,
+   mas o admin nao a carrega). */
+.icon-btn {
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 4px;
+}
+.icon-btn:hover { color: var(--color-text); }
+
 .variant-remove {
   position: absolute;
   top: 10px;
   right: 10px;
   font-size: 1rem;
+}
+.item-codes-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.item-codes-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.item-codes-label small { font-weight: 400; color: var(--color-text-muted); }
+.item-codes-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+/* Especificidade maior que ".product-form label" (que define
+   flex-direction: column) para manter o chip do tamanho e o campo de
+   codigo lado a lado nesta linha, em vez de empilhados. Mesma classe de
+   bug ja vista em ".modal-overlay[hidden]" e nos campos
+   ".supplier-field"/".customer-field" deste projeto. */
+.variants-list .item-code-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.item-code-size {
+  min-width: 28px;
+  text-align: center;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--color-bg-alt, #f1f1f1);
+  border: 1px solid var(--color-border);
+  font-size: 0.8rem;
+}
+.item-code-row input {
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 400;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  width: 160px;
 }
 
 /* Tela de Compras, Vendas e Estoque */
@@ -489,7 +548,122 @@ td.description-cell { white-space: normal; min-width: 160px; }
 
 .empty-row td { text-align: center; color: var(--color-text-muted); padding: 24px 0; }
 
+/* Tela de Nota de compra (importacao de planilha + lancamento manual) */
+.import-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.import-upload-row input[type="file"] {
+  font-size: 0.85rem;
+}
+.import-feedback {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  font-size: 0.85rem;
+}
+.import-feedback.error { background: #fdecea; color: var(--color-danger); border-color: transparent; }
+.import-feedback-summary { font-weight: 700; margin: 0 0 6px; }
+.import-feedback ul { margin: 6px 0 0; padding-left: 20px; }
+.import-feedback li { margin-bottom: 3px; }
+.import-feedback details { margin-top: 8px; }
+.import-feedback summary { cursor: pointer; font-weight: 600; }
+
+.new-products-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.new-product-card {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  background: var(--color-bg);
+}
+.new-product-card .full { grid-column: 1 / -1; }
+.new-product-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.new-product-card input {
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 400;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.new-product-variants {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.new-product-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+}
+
+.lines-table-input {
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  width: 84px;
+}
+.lines-table-input.wide { width: 120px; }
+
+.nota-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+.nota-freight-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.nota-freight-field input {
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 400;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  width: 140px;
+}
+.nota-totals {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+}
+.nota-totals strong { color: var(--color-text); }
+
 @media (max-width: 640px) {
   .product-form { grid-template-columns: 1fr; }
   .admin-main { padding: 16px; }
+  .new-product-card { grid-template-columns: 1fr; }
 }

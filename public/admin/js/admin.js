@@ -172,8 +172,34 @@ if (!form) {
     if (btn.dataset.action === 'delete') deleteProduct(product);
   });
 
-  // -------------------- Variacoes (cor + tamanhos + imagem) --------------------
-  function createVariantRow({ id, color = '', sizes = [], imageUrl = null } = {}) {
+  // -------------------- Variacoes (cor + tamanhos + codigo do item + imagem) --------------------
+  // Cada tamanho de uma cor pode ter seu proprio "codigo do item" (SKU),
+  // usado para controle interno/codigo de barras. A lista de campos de
+  // codigo e regerada sempre que o campo "Tamanhos" muda, preservando os
+  // valores ja digitados para os tamanhos que continuam presentes.
+  function renderItemCodesList(row, sizes, initialCodes = {}) {
+    const container = row.querySelector('[data-field="item-codes-list"]');
+    const previousValues = {};
+    container.querySelectorAll('[data-item-code-input]').forEach((input) => {
+      previousValues[input.dataset.size] = input.value;
+    });
+
+    container.innerHTML = '';
+    sizes.forEach((size) => {
+      const wrap = document.createElement('label');
+      wrap.className = 'item-code-row';
+      const safeSize = escapeHtml(size);
+      wrap.innerHTML = `
+        <span class="item-code-size">${safeSize}</span>
+        <input type="text" data-item-code-input data-size="${safeSize}" placeholder="Codigo (opcional)" />
+      `;
+      const input = wrap.querySelector('input');
+      input.value = previousValues[size] ?? initialCodes[size] ?? '';
+      container.appendChild(wrap);
+    });
+  }
+
+  function createVariantRow({ id, color = '', sizes = [], itemCodes = {}, imageUrl = null } = {}) {
     const variantId = id || makeVariantId();
     const fragment = variantRowTemplate.content.cloneNode(true);
     const row = fragment.querySelector('[data-variant-row]');
@@ -188,6 +214,15 @@ if (!form) {
 
     colorInput.value = color;
     sizesInput.value = sizes.join(', ');
+    renderItemCodesList(row, sizes, itemCodes);
+
+    sizesInput.addEventListener('input', () => {
+      const currentSizes = sizesInput.value
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      renderItemCodesList(row, currentSizes);
+    });
 
     if (imageUrl) {
       imagePreview.src = imageUrl;
@@ -234,8 +269,13 @@ if (!form) {
         .value.split(',')
         .map((s) => s.trim())
         .filter(Boolean);
+      const itemCodes = {};
+      row.querySelectorAll('[data-item-code-input]').forEach((input) => {
+        const val = input.value.trim();
+        if (val) itemCodes[input.dataset.size] = val;
+      });
       const file = row.querySelector('[data-field="image"]').files[0] || null;
-      variants.push({ id, color, sizes, file });
+      variants.push({ id, color, sizes, itemCodes, file });
     });
     return variants;
   }
@@ -332,7 +372,7 @@ if (!form) {
     formData.append('price', priceInput.value);
     formData.append(
       'variants',
-      JSON.stringify(variants.map((v) => ({ id: v.id, color: v.color, sizes: v.sizes })))
+      JSON.stringify(variants.map((v) => ({ id: v.id, color: v.color, sizes: v.sizes, itemCodes: v.itemCodes })))
     );
     variants.forEach((v) => {
       if (v.file) formData.append(`variantImage_${v.id}`, v.file);

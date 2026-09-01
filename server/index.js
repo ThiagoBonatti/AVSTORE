@@ -39,11 +39,14 @@ app.use('/api/stock', stockRoutes);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.use((err, req, res, next) => {
-  if (err && err.message && err.message.includes('imagem')) {
+  if (err && err.message && (err.message.includes('imagem') || err.message.includes('planilha'))) {
     return res.status(400).json({ error: err.message });
   }
   if (err && err.code === 'LIMIT_FILE_SIZE') {
-    return res.status(400).json({ error: 'Imagem muito grande. Tamanho maximo: 5MB.' });
+    const isSheetUpload = req.path && req.path.includes('/import/');
+    return res.status(400).json({
+      error: isSheetUpload ? 'Planilha muito grande. Tamanho maximo: 15MB.' : 'Imagem muito grande. Tamanho maximo: 5MB.',
+    });
   }
   console.error(err);
   res.status(500).json({ error: 'Erro interno no servidor.' });
