@@ -43,6 +43,9 @@ const historyTypeFilter = document.getElementById('history-type-filter');
 const historyFilterInput = document.getElementById('history-filter');
 const loadMoreBtn = document.getElementById('load-more-btn');
 
+const purchaseNotesTableBody = document.getElementById('purchase-notes-table-body');
+const saleNotesTableBody = document.getElementById('sale-notes-table-body');
+
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const dateFormatter = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 
@@ -401,6 +404,63 @@ historyTableBody.addEventListener('click', async (e) => {
 historyTypeFilter.addEventListener('change', renderHistory);
 historyFilterInput.addEventListener('input', renderHistory);
 
+// -------------------- Notas de compra / venda (agrupadas por NF) --------------------
+// Agrupa as movimentacoes ja carregadas (mesmo lote usado no Historico
+// abaixo) por numero de NF, uma linha por nota em vez de uma linha por item.
+// So movimentacoes com NF preenchida entram aqui (lancamentos avulsos sem
+// nota continuam aparecendo apenas no Historico). "Valor total" inclui o
+// frete, igual a tela "Ver nota".
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+
+function groupMovementsByNote(type) {
+  const map = new Map();
+  movements.forEach((m) => {
+    if (m.type !== type || !m.nf || m.cancelled) return;
+    if (!map.has(m.nf)) {
+      map.set(m.nf, { nf: m.nf, subtotal: 0, freight: 0, party: null, createdAt: m.createdAt });
+    }
+    const entry = map.get(m.nf);
+    entry.subtotal += m.totalPrice || 0;
+    entry.freight += m.freightShare || 0;
+    if (!entry.party) {
+      const party = type === 'purchase' ? m.supplier : m.customer;
+      entry.party = party && party.name ? party.name : null;
+    }
+    if (m.createdAt && (!entry.createdAt || m.createdAt > entry.createdAt)) entry.createdAt = m.createdAt;
+  });
+  return Array.from(map.values())
+    .map((e) => ({ ...e, subtotal: round2(e.subtotal), freight: round2(e.freight), total: round2(e.subtotal + e.freight) }))
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+}
+
+function renderNotesGrid(tbody, type, partyLabel) {
+  const notes = groupMovementsByNote(type);
+  if (notes.length === 0) {
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="5">Nenhuma nota de ${type === 'purchase' ? 'compra' : 'venda'} encontrada.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = notes
+    .map(
+      (n) => `
+        <tr>
+          <td>${escapeHtml(n.nf)}</td>
+          <td>${currency.format(n.total)}</td>
+          <td>${currency.format(n.freight)}</td>
+          <td>${escapeHtml(n.party || '-')}</td>
+          <td><a class="btn btn-ghost btn-sm" href="/admin/ver-nota.html?type=${encodeURIComponent(type)}&nf=${encodeURIComponent(n.nf)}">Ver nota</a></td>
+        </tr>
+      `
+    )
+    .join('');
+}
+
+function renderNotesGrids() {
+  renderNotesGrid(purchaseNotesTableBody, 'purchase');
+  renderNotesGrid(saleNotesTableBody, 'sale');
+}
+
 async function loadHistory({ reset = false } = {}) {
   const params = new URLSearchParams({ limit: '150' });
   if (!reset && movements.length) {
@@ -415,6 +475,7 @@ async function loadHistory({ reset = false } = {}) {
   movements = reset ? items : movements.concat(items);
   loadMoreBtn.hidden = items.length === 0;
   renderHistory();
+  renderNotesGrids();
 }
 
 loadMoreBtn.addEventListener('click', () => loadHistory({ reset: false }));
