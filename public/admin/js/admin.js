@@ -123,26 +123,50 @@ if (!form) {
     renderDatalists();
   }
 
+  // A lista mostra uma linha por codigo de barras (cor + tamanho), nao uma
+  // linha por produto: cada tamanho de cada cor pode ter seu proprio codigo
+  // (variant.itemCodes[tamanho], vindo da coluna "Codigo" da planilha de
+  // compra ou digitado manualmente no cadastro). O cadastro em si continua
+  // sendo 1 produto com varias cores/tamanhos (a loja e o estoque nao
+  // mudam) - isto e so uma forma diferente de listar o mesmo produto no
+  // admin, para que o codigo de barras de cada item fique visivel direto na
+  // lista em vez de escondido dentro da tela de edicao.
   function renderTable() {
     tableBody.innerHTML = '';
     productCountEl.textContent = allProducts.length;
 
-    if (allProducts.length === 0) {
+    const rows = [];
+    allProducts.forEach((p) => {
+      const variants = Array.isArray(p.variants) && p.variants.length ? p.variants : [{ color: '', sizes: [''], itemCodes: {}, imageUrl: p.imageUrl }];
+      variants.forEach((v) => {
+        const sizes = Array.isArray(v.sizes) && v.sizes.length ? v.sizes : [''];
+        sizes.forEach((size) => {
+          rows.push({
+            product: p,
+            imageUrl: v.imageUrl || p.imageUrl || '',
+            itemCode: (v.itemCodes && v.itemCodes[size]) || '',
+            color: v.color || '',
+            size: size || '',
+          });
+        });
+      });
+    });
+
+    if (rows.length === 0) {
       tableBody.innerHTML = '<tr class="empty-row"><td colspan="9">Nenhum produto cadastrado ainda.</td></tr>';
       return;
     }
 
-    allProducts.forEach((p) => {
-      const colors = (p.colors || []).join(', ');
-      const sizes = (p.sizes || []).join(', ');
+    rows.forEach((row) => {
+      const p = row.product;
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><img class="table-thumb" src="${p.imageUrl || ''}" alt="${escapeHtml(p.description)}" /></td>
-        <td>${escapeHtml(p.code)}</td>
+        <td><img class="table-thumb" src="${row.imageUrl || ''}" alt="${escapeHtml(p.description)}" /></td>
+        <td>${escapeHtml(row.itemCode || '-')}</td>
         <td class="description-cell">${escapeHtml(p.description)}</td>
+        <td>${escapeHtml(row.color || '-')}</td>
+        <td>${escapeHtml(row.size || '-')}</td>
         <td>${escapeHtml(p.category)}</td>
-        <td>${escapeHtml(colors)}</td>
-        <td>${escapeHtml(sizes)}</td>
         <td>${currency.format(p.price)}</td>
         <td>${p.createdAt ? dateFormatter.format(new Date(p.createdAt)) : ''}</td>
         <td class="row-actions">
