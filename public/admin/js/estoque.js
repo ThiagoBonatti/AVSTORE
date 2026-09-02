@@ -16,25 +16,6 @@ if (USE_FIREBASE_EMULATOR) {
 const adminUsernameEl = document.getElementById('admin-username');
 const logoutBtn = document.getElementById('logout-btn');
 
-const typeToggleBtns = document.querySelectorAll('.type-toggle-btn');
-const form = document.getElementById('movement-form');
-const productSelect = document.getElementById('mv-product');
-const variantSelect = document.getElementById('mv-variant');
-const sizeSelect = document.getElementById('mv-size');
-const sizeStockHint = document.getElementById('mv-size-stock-hint');
-const quantityInput = document.getElementById('mv-quantity');
-const priceLabel = document.getElementById('mv-price-label');
-const unitPriceInput = document.getElementById('mv-unit-price');
-const supplierFields = document.querySelectorAll('.supplier-field');
-const supplierNameInput = document.getElementById('mv-supplier-name');
-const supplierContactInput = document.getElementById('mv-supplier-contact');
-const customerFields = document.querySelectorAll('.customer-field');
-const customerNameInput = document.getElementById('mv-customer-name');
-const customerContactInput = document.getElementById('mv-customer-contact');
-const noteInput = document.getElementById('mv-note');
-const mvMessage = document.getElementById('mv-message');
-const submitBtn = document.getElementById('mv-submit-btn');
-
 const stockTableBody = document.getElementById('stock-table-body');
 const stockFilterInput = document.getElementById('stock-filter');
 
@@ -52,7 +33,6 @@ const dateFormatter = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', tim
 let currentUser = null;
 let products = [];
 let movements = [];
-let movementType = 'sale';
 
 function escapeHtml(str) {
   const div = document.createElement('div');
@@ -99,102 +79,18 @@ onAuthStateChanged(authClient, async (user) => {
   await Promise.all([loadProducts(), loadHistory({ reset: true })]);
 });
 
-// -------------------- Tipo: Venda / Compra --------------------
-function setMovementType(type) {
-  movementType = type;
-  typeToggleBtns.forEach((btn) => btn.classList.toggle('active', btn.dataset.type === type));
-  supplierFields.forEach((el) => (el.hidden = type !== 'purchase'));
-  customerFields.forEach((el) => (el.hidden = type !== 'sale'));
-  priceLabel.textContent = type === 'purchase' ? 'Custo unitario (R$)' : 'Preco unitario (R$)';
-  submitBtn.textContent = type === 'purchase' ? 'Lancar compra' : 'Lancar venda';
-
-  // Ao trocar para venda, sugere o preco de tabela do produto selecionado
-  // (o usuario pode ajustar antes de enviar).
-  if (type === 'sale') {
-    const product = products.find((p) => p.code === productSelect.value);
-    if (product && !unitPriceInput.value) unitPriceInput.value = product.price;
-  }
-}
-
-typeToggleBtns.forEach((btn) => {
-  btn.addEventListener('click', () => setMovementType(btn.dataset.type));
-});
-
 // -------------------- Produtos / catalogo --------------------
+// O lancamento manual de compra/venda avulsa saiu desta tela (agora e feito
+// nas telas dedicadas "Nota de compra" e "Nota de venda", que ja tem os
+// mesmos campos de produto/cor/tamanho e ainda cuidam do numero da nota e
+// do rateio de frete) - o catalogo continua sendo carregado aqui so para
+// alimentar a tabela "Estoque atual" abaixo.
 async function loadProducts() {
   const res = await authedFetch('/api/stock/products');
   const data = await res.json();
   products = data.items || [];
-
-  const current = productSelect.value;
-  productSelect.innerHTML = '<option value="">Selecione um produto...</option>';
-  products.forEach((p) => {
-    const opt = document.createElement('option');
-    opt.value = p.code;
-    opt.textContent = `${p.code} - ${p.description}`;
-    productSelect.appendChild(opt);
-  });
-  if (current && products.some((p) => p.code === current)) productSelect.value = current;
-
   renderStockTable();
-  updateVariantOptions();
 }
-
-function updateVariantOptions() {
-  const product = products.find((p) => p.code === productSelect.value);
-  variantSelect.innerHTML = '<option value="">Selecione a cor...</option>';
-  variantSelect.disabled = !product;
-
-  if (product) {
-    product.variants.forEach((v) => {
-      const opt = document.createElement('option');
-      opt.value = v.id;
-      opt.textContent = v.color;
-      variantSelect.appendChild(opt);
-    });
-  }
-  updateSizeOptions();
-}
-
-function updateSizeOptions() {
-  const product = products.find((p) => p.code === productSelect.value);
-  const variant = product && product.variants.find((v) => v.id === variantSelect.value);
-  sizeSelect.innerHTML = '<option value="">Selecione o tamanho...</option>';
-  sizeSelect.disabled = !variant;
-  sizeStockHint.textContent = '';
-
-  if (variant) {
-    variant.sizes.forEach((s) => {
-      const opt = document.createElement('option');
-      opt.value = s;
-      const qty = Number((variant.stock && variant.stock[s]) || 0);
-      opt.textContent = `${s} (estoque: ${qty})`;
-      sizeSelect.appendChild(opt);
-    });
-  }
-  updateSizeHint();
-}
-
-function updateSizeHint() {
-  const product = products.find((p) => p.code === productSelect.value);
-  const variant = product && product.variants.find((v) => v.id === variantSelect.value);
-  if (!variant || !sizeSelect.value) {
-    sizeStockHint.textContent = '';
-    return;
-  }
-  const qty = Number((variant.stock && variant.stock[sizeSelect.value]) || 0);
-  sizeStockHint.textContent = `(estoque atual: ${qty})`;
-}
-
-productSelect.addEventListener('change', () => {
-  updateVariantOptions();
-  if (movementType === 'sale') {
-    const product = products.find((p) => p.code === productSelect.value);
-    if (product) unitPriceInput.value = product.price;
-  }
-});
-variantSelect.addEventListener('change', updateSizeOptions);
-sizeSelect.addEventListener('change', updateSizeHint);
 
 // -------------------- Estoque atual --------------------
 function renderStockTable() {
@@ -234,85 +130,6 @@ function renderStockTable() {
 }
 
 stockFilterInput.addEventListener('input', renderStockTable);
-
-// -------------------- Lancamento de movimentacao --------------------
-function showMvMessage(text, type) {
-  mvMessage.textContent = text;
-  mvMessage.className = `form-message ${type}`;
-  mvMessage.hidden = false;
-}
-function hideMvMessage() {
-  mvMessage.hidden = true;
-}
-
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  hideMvMessage();
-
-  const payload = {
-    type: movementType,
-    code: productSelect.value,
-    variantId: variantSelect.value,
-    size: sizeSelect.value,
-    quantity: parseInt(quantityInput.value, 10),
-    unitPrice: Number(unitPriceInput.value),
-    note: noteInput.value.trim() || undefined,
-  };
-
-  if (movementType === 'purchase' && supplierNameInput.value.trim()) {
-    payload.supplier = {
-      name: supplierNameInput.value.trim(),
-      contact: supplierContactInput.value.trim(),
-    };
-  }
-  if (movementType === 'sale' && customerNameInput.value.trim()) {
-    payload.customer = {
-      name: customerNameInput.value.trim(),
-      contact: customerContactInput.value.trim(),
-    };
-  }
-
-  if (!payload.code || !payload.variantId || !payload.size) {
-    showMvMessage('Selecione o produto, a cor e o tamanho.', 'error');
-    return;
-  }
-  if (!Number.isInteger(payload.quantity) || payload.quantity <= 0) {
-    showMvMessage('Informe uma quantidade valida.', 'error');
-    return;
-  }
-
-  submitBtn.disabled = true;
-  try {
-    const res = await authedFetch('/api/stock/movements', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-
-    if (!res.ok) {
-      showMvMessage(data.error || 'Erro ao lancar a movimentacao.', 'error');
-      return;
-    }
-
-    showMvMessage(
-      movementType === 'purchase' ? 'Compra lancada com sucesso!' : 'Venda lancada com sucesso!',
-      'success'
-    );
-    form.reset();
-    variantSelect.innerHTML = '<option value="">Selecione a cor...</option>';
-    variantSelect.disabled = true;
-    sizeSelect.innerHTML = '<option value="">Selecione o tamanho...</option>';
-    sizeSelect.disabled = true;
-    sizeStockHint.textContent = '';
-
-    await Promise.all([loadProducts(), loadHistory({ reset: true })]);
-  } catch (err) {
-    showMvMessage('Erro de conexao com o servidor.', 'error');
-  } finally {
-    submitBtn.disabled = false;
-  }
-});
 
 // -------------------- Historico --------------------
 function typeBadge(type) {
@@ -441,7 +258,7 @@ function renderNotesGrid(tbody, type, partyLabel) {
     tbody.innerHTML = `<tr class="empty-row"><td colspan="5">Nenhuma nota de ${type === 'purchase' ? 'compra' : 'venda'} encontrada.</td></tr>`;
     return;
   }
-  tbody.innerHTML = notes
+  const rowsHtml = notes
     .map(
       (n) => `
         <tr>
@@ -454,6 +271,20 @@ function renderNotesGrid(tbody, type, partyLabel) {
       `
     )
     .join('');
+
+  const totalGeral = round2(notes.reduce((sum, n) => sum + n.total, 0));
+  const totalFrete = round2(notes.reduce((sum, n) => sum + n.freight, 0));
+  const totalsRowHtml = `
+    <tr class="notes-totals-row">
+      <td>Total (${notes.length} ${notes.length === 1 ? 'nota' : 'notas'})</td>
+      <td>${currency.format(totalGeral)}</td>
+      <td>${currency.format(totalFrete)}</td>
+      <td></td>
+      <td></td>
+    </tr>
+  `;
+
+  tbody.innerHTML = rowsHtml + totalsRowHtml;
 }
 
 function renderNotesGrids() {
@@ -481,4 +312,5 @@ async function loadHistory({ reset = false } = {}) {
 loadMoreBtn.addEventListener('click', () => loadHistory({ reset: false }));
 
 // -------------------- Init --------------------
-setMovementType('sale');
+// (o carregamento inicial de produtos e historico ja acontece em
+// onAuthStateChanged, acima)

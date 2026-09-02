@@ -161,7 +161,7 @@ if (!form) {
       const p = row.product;
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><img class="table-thumb" src="${row.imageUrl || ''}" alt="${escapeHtml(p.description)}" /></td>
+        <td><img class="table-thumb" src="${row.imageUrl || '/img/sem-imagem.gif'}" alt="${escapeHtml(p.description)}" /></td>
         <td>${escapeHtml(row.itemCode || '-')}</td>
         <td class="description-cell">${escapeHtml(p.description)}</td>
         <td>${escapeHtml(row.color || '-')}</td>

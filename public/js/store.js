@@ -202,7 +202,7 @@
     const card = document.createElement('article');
     card.className = 'product-card';
     card.innerHTML = `
-      <img data-field="image" src="${variants[0].imageUrl || ''}" alt="${escapeHtml(product.description)}" loading="lazy" />
+      <img data-field="image" src="${variants[0].imageUrl || '/img/sem-imagem.gif'}" alt="${escapeHtml(product.description)}" loading="lazy" />
       <div class="product-card-body">
         <div class="product-card-tags">
           <span>${escapeHtml(product.category)}</span>
@@ -227,7 +227,7 @@
     function selectVariant(index) {
       selectedIndex = index;
       const v = variants[index];
-      imageEl.src = v.imageUrl || '';
+      imageEl.src = v.imageUrl || '/img/sem-imagem.gif';
       fillSizeSelect(sizeSelectEl, v.sizes, v.sizes[0]);
       renderSwatches(swatchesEl, variants, selectedIndex, selectVariant);
     }
@@ -294,7 +294,7 @@
     let selectedIndex = 0;
 
     modalContent.innerHTML = `
-      <img data-field="image" src="${variants[0].imageUrl || ''}" alt="${escapeHtml(product.description)}" />
+      <img data-field="image" src="${variants[0].imageUrl || '/img/sem-imagem.gif'}" alt="${escapeHtml(product.description)}" />
       <div class="modal-info">
         <h2>${escapeHtml(product.description)}</h2>
         <span class="modal-price">${formatBRL(product.price)}</span>
@@ -318,7 +318,7 @@
     function selectVariant(index) {
       selectedIndex = index;
       const v = variants[index];
-      imageEl.src = v.imageUrl || '';
+      imageEl.src = v.imageUrl || '/img/sem-imagem.gif';
       fillSizeSelect(sizeSelectEl, v.sizes, v.sizes[0]);
       renderSwatches(swatchesEl, variants, selectedIndex, selectVariant);
     }

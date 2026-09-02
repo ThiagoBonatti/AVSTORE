@@ -548,6 +548,12 @@ td.description-cell { white-space: normal; min-width: 160px; }
 
 .empty-row td { text-align: center; color: var(--color-text-muted); padding: 24px 0; }
 
+.notes-totals-row td {
+  font-weight: 600;
+  border-top: 2px solid var(--color-border);
+  background: var(--color-bg);
+}
+
 /* Tela de Nota de compra (importacao de planilha + lancamento manual) */
 .import-upload-row {
   display: flex;
