@@ -31,6 +31,11 @@ const PRODUCT_CODES = [
   'CONJUNTO-MODELADOR-TRILOBAL-LILI-COM-SHORT',
   'MACACAO-MODELADOR-FRAN-COTELE-SCULP-LONGO',
   'CAMISETA-SLIM-FIT-LESSA',
+  // Produto duplicado criado por engano (cadastro manual de teste com um
+  // codigo de barras em vez do codigo do produto) - duplica o cadastro
+  // correto de "Legging Modeladora Flare Lulu - Ultra" acima. Confirmado
+  // com o lojista que pode ser apagado junto com o resto desta limpeza.
+  '6519651968724',
 ];
 
 const CONFIRM = process.argv.includes('--confirm');
@@ -62,22 +67,25 @@ const CONFIRM = process.argv.includes('--confirm');
     }
     console.log(`\n-> ${existingProducts.length} de ${PRODUCT_CODES.length} produto(s) existem no catalogo e serao apagados.`);
 
-    // -------- 2) Movimentacoes de compra ligadas a esses codigos --------
-    console.log(`\nProcurando movimentacoes de compra desses codigos...`);
+    // -------- 2) Movimentacoes (compra OU venda) ligadas a esses codigos --------
+    // Apaga qualquer movimentacao desses codigos, nao so compra: como o
+    // produto inteiro vai ser apagado, nao pode sobrar uma venda de teste
+    // apontando para um codigo que nao existe mais.
+    console.log(`\nProcurando movimentacoes (compra ou venda) desses codigos...`);
     const movementsToDelete = [];
     for (const code of PRODUCT_CODES) {
       // eslint-disable-next-line no-await-in-loop
-      const snap = await movementsRef.where('code', '==', code).where('type', '==', 'purchase').get();
+      const snap = await movementsRef.where('code', '==', code).get();
       snap.forEach((doc) => {
         const data = doc.data();
-        movementsToDelete.push({ id: doc.id, code, color: data.color, size: data.size, quantity: data.quantity, createdAt: data.createdAt });
+        movementsToDelete.push({ id: doc.id, code, type: data.type, color: data.color, size: data.size, quantity: data.quantity, createdAt: data.createdAt });
       });
     }
     movementsToDelete.sort((a, b) => (a.code + a.color + a.size).localeCompare(b.code + b.color + b.size));
     movementsToDelete.forEach((m) => {
-      console.log(`  [compra] ${m.id} | ${m.code} | ${m.color || '?'}/${m.size || '?'} | qtd ${m.quantity}`);
+      console.log(`  [${m.type === 'sale' ? 'venda ' : 'compra'}] ${m.id} | ${m.code} | ${m.color || '?'}/${m.size || '?'} | qtd ${m.quantity}`);
     });
-    console.log(`\n-> ${movementsToDelete.length} movimentacao(oes) de compra serao apagadas.`);
+    console.log(`\n-> ${movementsToDelete.length} movimentacao(oes) serao apagadas.`);
 
     if (!CONFIRM) {
       console.log(

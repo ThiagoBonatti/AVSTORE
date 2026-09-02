@@ -27,6 +27,7 @@ const HEADER_ALIASES = {
   nf: ['nf', 'numero nf', 'nota fiscal'],
   dataNF: ['data nf', 'data da nf', 'data'],
   valorUnit: ['valor un', 'valor (un)', 'valor unitario', 'valor unitário', 'custo unitario', 'custo unitário'],
+  valorVenda: ['valor venda', 'valor de venda', 'preco venda', 'preço venda', 'preco de venda', 'preço de venda'],
 };
 
 function stripAccents(str) {
@@ -119,11 +120,14 @@ function parseWorkbookRows(buffer) {
     throw new Error('Nao foi possivel ler o arquivo. Confirme que e uma planilha .xlsx valida.');
   }
 
-  const sheetName = workbook.SheetNames.find((name) => SHEET_NAME_PATTERN.test(name));
+  // Preferencia pela aba "CONTROLE ESTOQUE" (nome do modelo original), mas
+  // aceita qualquer outro nome de aba (ex.: "Planilha1", export de outro
+  // sistema) - quem realmente decide se a planilha e valida e a checagem de
+  // colunas obrigatorias logo abaixo. Isso evita rejeitar a planilha inteira
+  // so por causa do nome da aba.
+  const sheetName = workbook.SheetNames.find((name) => SHEET_NAME_PATTERN.test(name)) || workbook.SheetNames[0];
   if (!sheetName) {
-    throw new Error(
-      `A planilha nao tem uma aba "CONTROLE ESTOQUE". Abas encontradas: ${workbook.SheetNames.join(', ')}.`
-    );
+    throw new Error('A planilha nao tem nenhuma aba.');
   }
 
   const sheet = workbook.Sheets[sheetName];
@@ -168,6 +172,7 @@ function parseWorkbookRows(buffer) {
       nf: get('nf') !== null && get('nf') !== undefined && String(get('nf')).trim() !== '' ? String(get('nf')).trim() : null,
       dataNF: toIsoDateOrNull(get('dataNF')),
       valorUnit: get('valorUnit'),
+      valorVenda: get('valorVenda'),
     });
   }
 
@@ -247,7 +252,7 @@ function buildImportPreview({ rows, existingItemCodeIndex, existingProductCodes 
 
       let staged = stagingByKey.get(baseKey);
       if (!staged) {
-        staged = { tempId: `novo-${stagingSeq}`, description: baseDisplay, colors: new Map(), category: null };
+        staged = { tempId: `novo-${stagingSeq}`, description: baseDisplay, colors: new Map(), category: null, price: null };
         stagingSeq += 1;
         stagingByKey.set(baseKey, staged);
       }
@@ -258,6 +263,20 @@ function buildImportPreview({ rows, existingItemCodeIndex, existingProductCodes 
         } else if (normalizeKey(staged.category) !== normalizeKey(row.categoria)) {
           warnings.push(
             `Linha ${row.rowNumber}: categoria "${row.categoria}" difere da categoria "${staged.category}" ja identificada para "${baseDisplay}"; foi mantida a primeira.`
+          );
+        }
+      }
+
+      // "Valor venda" e opcional (planilhas antigas nao tem essa coluna) -
+      // quando presente, pre-preenche o preco de venda do produto proposto
+      // para nao depender de preenchimento manual antes de finalizar a nota.
+      const rowSalePrice = Number(row.valorVenda);
+      if (Number.isFinite(rowSalePrice) && rowSalePrice > 0) {
+        if (staged.price === null) {
+          staged.price = rowSalePrice;
+        } else if (staged.price !== rowSalePrice) {
+          warnings.push(
+            `Linha ${row.rowNumber}: "Valor venda" (${rowSalePrice}) difere do valor (${staged.price}) ja identificado para "${baseDisplay}"; foi mantido o primeiro.`
           );
         }
       }
@@ -336,7 +355,7 @@ function buildImportPreview({ rows, existingItemCodeIndex, existingProductCodes 
       code,
       description: staged.description,
       category: staged.category ? toTitleCase(staged.category) : '',
-      price: '',
+      price: staged.price !== null ? staged.price : '',
       variants,
       include: true,
     });
