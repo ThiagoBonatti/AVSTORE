@@ -102,11 +102,12 @@
     <section class="admin-card" id="items-section">
       <div class="card-header-row">
         <h2>Itens desta nota (<span id="lines-count">0</span>)</h2>
+        <button type="button" id="finalize-all-btn" class="btn btn-primary btn-sm" hidden>Finalizar todas as notas pendentes</button>
       </div>
       <p class="variants-hint">
         Os itens sao agrupados automaticamente pelo numero da NF de cada linha (itens sem NF ficam em um
         grupo "Sem NF"). Cada nota tem seu proprio rateio de frete e pode ser finalizada de forma
-        independente das demais.
+        independente das demais, ou todas de uma vez pelo botao acima.
       </p>
       <div id="nota-groups" class="nota-groups"></div>
       <p id="finalize-message" class="form-message" hidden></p>

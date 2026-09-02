@@ -604,6 +604,10 @@ td.description-cell { white-space: normal; min-width: 160px; }
   border: 1px solid var(--color-border);
   border-radius: 8px;
 }
+.new-product-card input.field-invalid {
+  border-color: #dc2626;
+  background: #fef2f2;
+}
 .new-product-variants {
   font-size: 0.82rem;
   color: var(--color-text-muted);

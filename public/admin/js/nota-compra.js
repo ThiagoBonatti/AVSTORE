@@ -39,6 +39,7 @@ const manualAddBtn = document.getElementById('manual-add-btn');
 const linesCountEl = document.getElementById('lines-count');
 const notaGroupsEl = document.getElementById('nota-groups');
 const finalizeMessage = document.getElementById('finalize-message');
+const finalizeAllBtn = document.getElementById('finalize-all-btn');
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const SEM_NF_KEY = '__sem_nf__';
@@ -349,6 +350,7 @@ newProductsList.addEventListener('input', (e) => {
   const product = newProducts.find((p) => p.tempId === card.dataset.tempId);
   if (!product) return;
   product[field] = field === 'price' ? e.target.value : e.target.value;
+  if (field === 'price') e.target.classList.remove('field-invalid');
   if (field === 'code') renderGroups(); // o codigo aparece na coluna "Produto" da tabela de itens
 });
 
@@ -419,6 +421,8 @@ function groupLines() {
 function renderGroups() {
   linesCountEl.textContent = lines.length;
   const groups = groupLines();
+
+  if (finalizeAllBtn) finalizeAllBtn.hidden = groups.length < 2;
 
   if (groups.length === 0) {
     notaGroupsEl.innerHTML = '<p class="variants-hint">Nenhum item adicionado ainda. Importe uma planilha ou adicione um item manualmente acima.</p>';
@@ -596,10 +600,34 @@ function hideFinalizeMessage() {
 async function finalizeGroup(key, buttonEl) {
   hideFinalizeMessage();
   const group = groupLines().find((g) => g.key === key);
-  if (!group || group.items.length === 0) return;
+  if (!group || group.items.length === 0) return false;
 
   const referencedTempIds = new Set(group.items.filter((l) => l.kind === 'new').map((l) => l.tempId));
   const createdProducts = newProducts.filter((p) => referencedTempIds.has(p.tempId));
+
+  // Um campo de preco vazio vira Number('') === 0, que passa na validacao do
+  // servidor (0 e um numero valido e >= 0) e cadastraria o produto de graca
+  // sem avisar ninguem. Bloqueia aqui, antes de gastar uma chamada ao
+  // servidor, e destaca visualmente os campos que faltam preencher.
+  const missingPriceProducts = createdProducts.filter((p) => {
+    const price = Number(p.price);
+    return !Number.isFinite(price) || price <= 0;
+  });
+  if (missingPriceProducts.length) {
+    missingPriceProducts.forEach((p) => {
+      const card = newProductsList.querySelector(`[data-temp-id="${cssEscape(p.tempId)}"]`);
+      const priceInput = card && card.querySelector('[data-field="price"]');
+      if (priceInput) priceInput.classList.add('field-invalid');
+    });
+    const firstCard = newProductsList.querySelector(`[data-temp-id="${cssEscape(missingPriceProducts[0].tempId)}"]`);
+    if (firstCard) firstCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    showFinalizeMessage(
+      `${group.label}: informe um preco de venda maior que zero para: ${missingPriceProducts.map((p) => p.description || p.code || p.tempId).join(', ')}.`,
+      'error'
+    );
+    return false;
+  }
+
   const productsPayload = createdProducts.map((p) => ({
     tempId: p.tempId,
     code: String(p.code || '').trim(),
@@ -667,12 +695,12 @@ async function finalizeGroup(key, buttonEl) {
         'error'
       );
       await loadCatalog();
-      return;
+      return false;
     }
 
     if (!res.ok) {
       showFinalizeMessage(`${group.label}: ${data.error || 'erro ao finalizar a nota.'}`, 'error');
-      return;
+      return false;
     }
 
     const postedUids = new Set(group.items.map((l) => l.uid));
@@ -685,11 +713,51 @@ async function finalizeGroup(key, buttonEl) {
       'success'
     );
     await loadCatalog();
+    return true;
   } catch (err) {
     showFinalizeMessage(`${group.label}: erro de conexao com o servidor.`, 'error');
+    return false;
   } finally {
     if (buttonEl) buttonEl.disabled = false;
   }
+}
+
+// -------------------- Finalizar todas as notas pendentes de uma vez --------------------
+// Como cada NF vira seu proprio grupo com seu proprio botao, uma planilha
+// com varias notas exige varios cliques em "Finalizar esta nota". Este botao
+// automatiza isso, uma nota de cada vez (reaproveitando finalizeGroup, entao
+// o mesmo rateio de frete e a mesma logica de erro parcial se aplicam) e para
+// no primeiro problema (ex.: preco faltando), deixando a mensagem de erro
+// visivel e as notas seguintes intactas para tentar de novo depois de corrigir.
+async function finalizeAllGroups() {
+  hideFinalizeMessage();
+  const totalGroups = groupLines().length;
+  if (totalGroups === 0) return;
+
+  if (finalizeAllBtn) finalizeAllBtn.disabled = true;
+  let successCount = 0;
+  try {
+    // groupLines() e recalculado a cada volta porque finalizeGroup() muda
+    // "lines" (remove os itens ja lancados) a cada chamada.
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const groups = groupLines();
+      if (groups.length === 0) break;
+      const ok = await finalizeGroup(groups[0].key, null);
+      if (!ok) break;
+      successCount += 1;
+    }
+  } finally {
+    if (finalizeAllBtn) finalizeAllBtn.disabled = lines.length === 0;
+  }
+
+  if (successCount === totalGroups && totalGroups > 0) {
+    showFinalizeMessage(`Todas as ${totalGroups} nota(s) foram finalizadas com sucesso.`, 'success');
+  }
+}
+
+if (finalizeAllBtn) {
+  finalizeAllBtn.addEventListener('click', finalizeAllGroups);
 }
 
 // -------------------- Init --------------------
