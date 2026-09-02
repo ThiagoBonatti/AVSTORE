@@ -280,8 +280,15 @@ importBtn.addEventListener('click', async () => {
     if (rowErrors.length) {
       html += `<details><summary>${rowErrors.length} linha(s) ignorada(s)</summary><ul>${rowErrors.map((e) => `<li>${escapeHtml(e.message)}</li>`).join('')}</ul></details>`;
     }
+    html += '<p class="import-feedback-summary"><a href="#items-section" data-action="scroll-to-items">Ver os itens desta importacao, agrupados por NF ⬇</a></p>';
     importFeedback.innerHTML = html;
     importFileInput.value = '';
+
+    // A planilha pode gerar muitos produtos novos e varios grupos de NF, o
+    // que deixa a pagina bem longa - rola automaticamente ate a secao de
+    // itens para o admin nao achar que "nao importou nada" so porque ela
+    // ficou fora da tela.
+    document.getElementById('items-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (err) {
     importFeedback.hidden = false;
     importFeedback.className = 'import-feedback error';
