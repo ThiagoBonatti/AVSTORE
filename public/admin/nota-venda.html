@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AVSTORE Admin - Nota de Venda</title>
+<link rel="icon" type="image/png" href="/img/favicon-32.png" />
+<link rel="apple-touch-icon" href="/img/favicon-180.png" />
+<link rel="stylesheet" href="/admin/css/admin.css" />
+</head>
+<body>
+  <header class="admin-header">
+    <div class="admin-logo"><img src="/img/logo.png" alt="AVSTORE" class="admin-logo-img" /><span>Admin</span></div>
+    <nav class="admin-nav">
+      <a href="/admin/dashboard.html" class="admin-nav-link">Produtos</a>
+      <a href="/admin/estoque.html" class="admin-nav-link">Compras, vendas e estoque</a>
+      <a href="/admin/nota-compra.html" class="admin-nav-link">Nota de compra</a>
+      <a href="/admin/nota-venda.html" class="admin-nav-link active">Nota de venda</a>
+      <a href="/admin/relatorios.html" class="admin-nav-link">Relatorios</a>
+    </nav>
+    <div class="admin-header-actions">
+      <span class="admin-username" id="admin-username"></span>
+      <a href="/" class="btn btn-ghost btn-sm">Ver loja</a>
+      <button id="logout-btn" class="btn btn-ghost btn-sm">Sair</button>
+    </div>
+  </header>
+
+  <main class="admin-main">
+    <section class="admin-card">
+      <h2>Dados da nota</h2>
+      <p class="variants-hint">
+        Preencha os dados da nota de venda e adicione os itens abaixo. Ao finalizar, todos os itens sao
+        lancados juntos, com o frete rateado proporcionalmente entre eles.
+      </p>
+      <form id="nota-header-form" class="product-form">
+        <label>
+          Nro da nota <span class="field-hint">(opcional)</span>
+          <input type="text" id="header-nf" placeholder="Numero da nota" />
+        </label>
+        <label>
+          Data da nota <span class="field-hint">(opcional)</span>
+          <input type="date" id="header-data-nf" />
+        </label>
+        <label>
+          Cliente <span class="field-hint">(opcional)</span>
+          <input type="text" id="header-cliente" placeholder="Nome do cliente" />
+        </label>
+        <label>
+          Valor do frete (R$) <span class="field-hint">(opcional)</span>
+          <input type="number" id="header-frete" min="0" step="0.01" value="0" />
+        </label>
+      </form>
+    </section>
+
+    <section class="admin-card">
+      <h2>Adicionar item</h2>
+      <form id="manual-item-form" class="product-form">
+        <label class="full">
+          Produto (ja cadastrado)
+          <select id="manual-product">
+            <option value="">Selecione um produto...</option>
+          </select>
+        </label>
+        <label>
+          Cor
+          <select id="manual-color" disabled>
+            <option value="">Selecione a cor...</option>
+          </select>
+        </label>
+        <label>
+          Tamanho
+          <select id="manual-size" disabled>
+            <option value="">Selecione o tamanho...</option>
+          </select>
+        </label>
+        <label>
+          Quantidade
+          <input type="number" id="manual-quantity" min="1" step="1" value="1" />
+        </label>
+        <label>
+          Valor unitario (R$)
+          <input type="number" id="manual-unit-price" min="0" step="0.01" />
+        </label>
+        <div class="form-actions">
+          <button type="button" id="manual-add-btn" class="btn btn-ghost">+ Adicionar item a nota</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="admin-card" id="items-section">
+      <div class="card-header-row">
+        <h2>Itens desta nota (<span id="lines-count">0</span>)</h2>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Produto</th>
+              <th>Cor</th>
+              <th>Tamanho</th>
+              <th>Codigo</th>
+              <th>Qtd</th>
+              <th>Valor unit.</th>
+              <th>Rateio frete</th>
+              <th>Valor total</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="items-table-body"></tbody>
+        </table>
+      </div>
+      <p id="empty-items-hint" class="variants-hint">Nenhum item adicionado ainda. Adicione um item acima.</p>
+      <div class="nota-footer">
+        <div class="nota-totals">
+          <span>Subtotal: <strong id="totals-subtotal">R$ 0,00</strong></span>
+          <span>Frete: <strong id="totals-freight">R$ 0,00</strong></span>
+          <span>Total com frete: <strong id="totals-grand">R$ 0,00</strong></span>
+        </div>
+        <button type="button" id="finalize-btn" class="btn btn-primary">Finalizar nota de venda</button>
+      </div>
+      <p id="finalize-message" class="form-message" hidden></p>
+    </section>
+  </main>
+
+  <script type="module" src="/admin/js/nota-venda.js"></script>
+</body>
+</html>

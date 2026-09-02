@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AVSTORE Admin - Ver Nota</title>
+<link rel="icon" type="image/png" href="/img/favicon-32.png" />
+<link rel="apple-touch-icon" href="/img/favicon-180.png" />
+<link rel="stylesheet" href="/admin/css/admin.css" />
+</head>
+<body>
+  <header class="admin-header">
+    <div class="admin-logo"><img src="/img/logo.png" alt="AVSTORE" class="admin-logo-img" /><span>Admin</span></div>
+    <nav class="admin-nav">
+      <a href="/admin/dashboard.html" class="admin-nav-link">Produtos</a>
+      <a href="/admin/estoque.html" class="admin-nav-link">Compras, vendas e estoque</a>
+      <a href="/admin/nota-compra.html" class="admin-nav-link">Nota de compra</a>
+      <a href="/admin/nota-venda.html" class="admin-nav-link">Nota de venda</a>
+      <a href="/admin/relatorios.html" class="admin-nav-link">Relatorios</a>
+    </nav>
+    <div class="admin-header-actions">
+      <span class="admin-username" id="admin-username"></span>
+      <a href="/" class="btn btn-ghost btn-sm">Ver loja</a>
+      <button id="logout-btn" class="btn btn-ghost btn-sm">Sair</button>
+    </div>
+  </header>
+
+  <main class="admin-main">
+    <p><a href="/admin/estoque.html" class="btn btn-ghost btn-sm">← Voltar para o historico</a></p>
+
+    <section class="admin-card">
+      <div class="card-header-row">
+        <h2 id="note-title">Nota</h2>
+      </div>
+      <p id="load-message" class="form-message" hidden></p>
+      <div id="note-content" hidden>
+        <div class="nota-header-grid">
+          <div><span class="field-hint">Nro nota</span><div id="field-nf">-</div></div>
+          <div><span class="field-hint">Data da nota</span><div id="field-data">-</div></div>
+          <div><span class="field-hint" id="field-party-label">Fornecedor</span><div id="field-party">-</div></div>
+          <div><span class="field-hint">Valor do frete</span><div id="field-frete">-</div></div>
+          <div><span class="field-hint">Valor total</span><div id="field-total">-</div></div>
+        </div>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Codigo do item</th>
+                <th>Descricao</th>
+                <th>Tamanho</th>
+                <th>Cor</th>
+                <th>Valor unitario</th>
+                <th>Quantidade</th>
+                <th>Valor total</th>
+                <th>Rateio de frete</th>
+              </tr>
+            </thead>
+            <tbody id="items-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="/admin/js/ver-nota.js"></script>
+</body>
+</html>

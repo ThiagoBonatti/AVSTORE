@@ -347,9 +347,13 @@ function renderHistory() {
     const marginText = m.type === 'sale' && m.marginTotal != null
       ? `<span class="${m.marginTotal < 0 ? 'stock-out' : ''}">${currency.format(m.marginTotal)}</span>`
       : '-';
-    const actionCell = m.cancelled
+    const verNotaLink = m.nf
+      ? `<a class="btn btn-ghost btn-sm" href="/admin/ver-nota.html?type=${encodeURIComponent(m.type)}&nf=${encodeURIComponent(m.nf)}">Ver nota</a>`
+      : '';
+    const cancelBtn = m.cancelled
       ? '<span class="field-hint">Cancelada</span>'
       : `<button class="btn btn-ghost btn-sm" data-action="cancel" data-id="${m.id}">Cancelar</button>`;
+    const actionCell = `${verNotaLink}${cancelBtn}`;
 
     tr.innerHTML = `
       <td>${m.createdAt ? dateFormatter.format(new Date(m.createdAt)) : ''}</td>

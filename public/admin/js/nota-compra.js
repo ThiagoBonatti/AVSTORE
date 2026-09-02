@@ -597,8 +597,29 @@ function hideFinalizeMessage() {
   finalizeMessage.hidden = true;
 }
 
+// Enquanto uma finalizacao esta em andamento, nenhuma outra pode comecar.
+// Sem isso, clicar em "Finalizar esta nota" em duas notas diferentes antes da
+// primeira responder (ex.: o Render "acordando" e demorando alguns segundos)
+// permite que os dois pedidos cheguem ao servidor quase juntos ainda achando
+// que um certo produto e "novo" - o segundo pedido tenta criar um produto que
+// o primeiro acabou de criar, toma um erro de "ja existe" e a nota inteira
+// falha (nenhuma compra daquela nota e lancada), mesmo que a tela nao deixe
+// isso claro. Um lock simples elimina essa corrida.
+let finalizeInFlight = false;
+
+function setFinalizeButtonsDisabled(disabled) {
+  notaGroupsEl.querySelectorAll('[data-action="finalize-group"]').forEach((btn) => {
+    btn.disabled = disabled;
+  });
+  if (finalizeAllBtn) finalizeAllBtn.disabled = disabled || lines.length === 0;
+}
+
 async function finalizeGroup(key, buttonEl) {
   hideFinalizeMessage();
+  if (finalizeInFlight) {
+    showFinalizeMessage('Aguarde a nota anterior terminar de ser finalizada antes de finalizar outra.', 'error');
+    return false;
+  }
   const group = groupLines().find((g) => g.key === key);
   if (!group || group.items.length === 0) return false;
 
@@ -655,6 +676,8 @@ async function finalizeGroup(key, buttonEl) {
     freightShare: shares[i],
   }));
 
+  finalizeInFlight = true;
+  setFinalizeButtonsDisabled(true);
   if (buttonEl) buttonEl.disabled = true;
   try {
     const res = await authedFetch('/api/stock/import/commit', {
@@ -718,6 +741,8 @@ async function finalizeGroup(key, buttonEl) {
     showFinalizeMessage(`${group.label}: erro de conexao com o servidor.`, 'error');
     return false;
   } finally {
+    finalizeInFlight = false;
+    setFinalizeButtonsDisabled(false);
     if (buttonEl) buttonEl.disabled = false;
   }
 }

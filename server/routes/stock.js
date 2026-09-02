@@ -103,6 +103,25 @@ router.get('/products', async (req, res) => {
 // mais antigas.
 router.get('/movements', async (req, res) => {
   try {
+    // "nf" busca todos os itens de UMA nota especifica (usado pela tela "Ver
+    // nota") - uma consulta separada, so com filtros de igualdade (nf e,
+    // opcionalmente, type), que o Firestore atende sem exigir indice
+    // composto (diferente de combinar "where" com "orderBy" em outro campo).
+    // O resultado costuma ser pequeno (os itens de uma unica nota), entao
+    // ordenamos em memoria.
+    if (req.query.nf) {
+      const nf = String(req.query.nf).trim();
+      let nfQuery = movementsRef.where('nf', '==', nf);
+      if (req.query.type === 'purchase' || req.query.type === 'sale') {
+        nfQuery = nfQuery.where('type', '==', req.query.type);
+      }
+      const snapshot = await nfQuery.get();
+      const items = snapshot.docs
+        .map(serializeMovement)
+        .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+      return res.json({ items });
+    }
+
     const limit = Math.min(300, Math.max(1, parseInt(req.query.limit, 10) || 150));
     let query = movementsRef.orderBy('createdAt', 'desc');
     if (req.query.before) {
@@ -486,6 +505,100 @@ router.delete('/movements/:id', async (req, res) => {
     console.error(err);
     res.status(500).json({ error: 'Erro ao cancelar a movimentacao.' });
   }
+});
+
+// -------------------- Nota de venda (lancamento manual, varios itens) --------------------
+// POST /api/stock/sale-note/commit - lanca varias vendas de uma vez, todas
+// pertencendo a mesma nota (mesma NF/data/cliente), com rateio de frete ja
+// calculado no navegador (mesmo principio do rateio de frete da nota de
+// compra - ver comentario mais abaixo). Diferente da nota de compra, aqui
+// nunca ha produto novo: venda so pode ser de algo que ja existe no
+// catalogo. Cada linha e lancada em sua propria transacao (mesma funcao
+// runStockMovementTransaction usada pelo lancamento manual avulso), entao um
+// erro numa linha (ex.: estoque insuficiente) nao desfaz as anteriores - a
+// resposta parcial (207) informa exatamente onde parou.
+router.post('/sale-note/commit', async (req, res) => {
+  const body = req.body || {};
+  const rawLines = Array.isArray(body.lines) ? body.lines : [];
+  const linesToPost = rawLines.filter((l) => l && l.include !== false);
+
+  if (linesToPost.length === 0) {
+    return res.status(400).json({ error: 'Nenhum item para lancar. Adicione ao menos um item a nota.' });
+  }
+
+  const errors = [];
+  linesToPost.forEach((line, i) => {
+    const label = `Item ${i + 1}`;
+    const quantity = Number(line && line.quantity);
+    const unitPrice = Number(line && line.unitPrice);
+    const freightShare = Number((line && line.freightShare) || 0);
+
+    if (!line || !line.productCode) errors.push(`${label}: selecione um produto.`);
+    if (!line || !line.variantId) errors.push(`${label}: selecione uma cor.`);
+    if (!line || !line.size) errors.push(`${label}: selecione um tamanho.`);
+    if (!Number.isInteger(quantity) || quantity <= 0) errors.push(`${label}: quantidade invalida.`);
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) errors.push(`${label}: preco unitario invalido.`);
+    if (!Number.isFinite(freightShare) || freightShare < 0) errors.push(`${label}: rateio de frete invalido.`);
+  });
+
+  if (errors.length) {
+    return res.status(400).json({ error: errors.slice(0, 15).join(' '), errors });
+  }
+
+  const posted = [];
+  let failure = null;
+
+  for (let i = 0; i < linesToPost.length; i += 1) {
+    const line = linesToPost[i];
+    const quantity = Number(line.quantity);
+    const unitPrice = Number(line.unitPrice);
+    const freightShare = Number(line.freightShare || 0);
+
+    const customer = line.cliente && String(line.cliente).trim()
+      ? { name: String(line.cliente).trim(), contact: '' }
+      : null;
+
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const movement = await runStockMovementTransaction({
+        type: 'sale',
+        code: line.productCode,
+        variantId: line.variantId,
+        size: line.size,
+        quantity,
+        unitPrice,
+        note: line.nf ? `Nota de venda (NF ${line.nf}).` : 'Nota de venda.',
+        customer,
+        nf: line.nf || null,
+        invoiceDate: line.invoiceDate || null,
+        freightShare,
+        createdByEmail: req.admin.email,
+      });
+      posted.push({ rowNumber: i, movementId: movement.id });
+    } catch (err) {
+      failure = { rowNumber: i, error: err instanceof HttpError ? err.message : 'Erro ao lancar este item.' };
+      break;
+    }
+  }
+
+  const summary = {
+    movementsCreated: posted.length,
+    totalLines: linesToPost.length,
+    postedRowNumbers: posted.map((p) => p.rowNumber),
+  };
+
+  if (failure) {
+    return res.status(207).json({
+      partial: true,
+      summary,
+      failure,
+      error:
+        `Foram lancados ${posted.length} de ${linesToPost.length} item(ns) antes de um erro no item ${failure.rowNumber + 1} ` +
+        `(${failure.error}). Corrija o problema e reenvie so os itens restantes.`,
+    });
+  }
+
+  res.status(201).json({ ok: true, summary });
 });
 
 // -------------------- Importacao de nota de compra / planilha --------------------
