@@ -25,6 +25,10 @@ const fieldPartyLabelEl = document.getElementById('field-party-label');
 const fieldPartyEl = document.getElementById('field-party');
 const fieldFreteEl = document.getElementById('field-frete');
 const fieldTotalEl = document.getElementById('field-total');
+const fieldVendedorWrap = document.getElementById('field-vendedor-wrap');
+const fieldVendedorEl = document.getElementById('field-vendedor');
+const fieldComissaoWrap = document.getElementById('field-comissao-wrap');
+const fieldComissaoEl = document.getElementById('field-comissao');
 const itemsTableBody = document.getElementById('items-table-body');
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -132,6 +136,20 @@ function renderNote(type, nf, items) {
   fieldPartyEl.textContent = party && party.name ? party.name : '-';
   fieldFreteEl.textContent = currency.format(totalFreight);
   fieldTotalEl.textContent = currency.format(round2(totalValue + totalFreight));
+
+  // Vendedor/comissao so existem em notas de venda (campos novos no cabecalho
+  // da tela "Nota de venda") - uma nota de compra nunca tem esses campos, e
+  // uma nota de venda antiga (lancada antes desta funcionalidade existir)
+  // tambem nao, entao as duas linhas ficam escondidas quando nao ha dado.
+  const vendedor = items.map((m) => m.vendedor).find((v) => v);
+  const totalComissao = round2(items.reduce((sum, m) => sum + (m.comissaoValue || 0), 0));
+  const hasComissao = items.some((m) => m.comissaoValue != null);
+
+  fieldVendedorWrap.hidden = !vendedor;
+  if (vendedor) fieldVendedorEl.textContent = vendedor;
+
+  fieldComissaoWrap.hidden = !hasComissao;
+  if (hasComissao) fieldComissaoEl.textContent = currency.format(totalComissao);
 
   itemsTableBody.innerHTML = items
     .map((m) => `

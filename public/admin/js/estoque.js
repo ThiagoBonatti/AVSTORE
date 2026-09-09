@@ -33,6 +33,7 @@ const dateFormatter = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', tim
 let currentUser = null;
 let products = [];
 let movements = [];
+let allMovementsForNotes = [];
 
 function escapeHtml(str) {
   const div = document.createElement('div');
@@ -76,7 +77,11 @@ onAuthStateChanged(authClient, async (user) => {
 
   currentUser = user;
   adminUsernameEl.textContent = user.email;
-  await Promise.all([loadProducts(), loadHistory({ reset: true })]);
+  await Promise.all([loadProducts(), loadHistory({ reset: true }), loadAllMovementsForNotes()]);
+  // loadProducts() e loadHistory() rodam em paralelo (mais rapido), mas a
+  // coluna "Codigo" do historico depende do catalogo ja carregado - redesenha
+  // por garantia caso loadHistory tenha terminado primeiro.
+  renderHistory();
 });
 
 // -------------------- Produtos / catalogo --------------------
@@ -102,15 +107,16 @@ function renderStockTable() {
     p.variants.forEach((v) => {
       v.sizes.forEach((s) => {
         const qty = Number((v.stock && v.stock[s]) || 0);
-        const haystack = `${p.code} ${p.description} ${v.color}`.toLowerCase();
+        const itemCode = (v.itemCodes && v.itemCodes[s]) || '';
+        const haystack = `${p.code} ${itemCode} ${p.description} ${v.color}`.toLowerCase();
         if (filter && !haystack.includes(filter)) return;
-        rows.push({ code: p.code, description: p.description, color: v.color, size: s, qty });
+        rows.push({ code: p.code, itemCode, description: p.description, color: v.color, size: s, qty });
       });
     });
   });
 
   if (rows.length === 0) {
-    stockTableBody.innerHTML = '<tr class="empty-row"><td colspan="4">Nenhum item de estoque encontrado.</td></tr>';
+    stockTableBody.innerHTML = '<tr class="empty-row"><td colspan="5">Nenhum item de estoque encontrado.</td></tr>';
     return;
   }
 
@@ -120,6 +126,7 @@ function renderStockTable() {
     if (r.qty === 0) stockClass = 'stock-out';
     else if (r.qty <= 2) stockClass = 'stock-low';
     tr.innerHTML = `
+      <td>${escapeHtml(r.itemCode || '-')}</td>
       <td>${escapeHtml(r.code)} - ${escapeHtml(r.description)}</td>
       <td>${escapeHtml(r.color)}</td>
       <td>${escapeHtml(r.size)}</td>
@@ -138,6 +145,19 @@ function typeBadge(type) {
     : '<span class="badge badge-sale">Venda</span>';
 }
 
+// Busca o codigo de barras (item code) de uma movimentacao a partir do
+// catalogo ja carregado (produtos nao guardam o itemCode na propria
+// movimentacao - so na variante do produto), casando por codigo do produto +
+// cor + tamanho. Se o produto/cor/tamanho nao existir mais (ex.: produto
+// excluido depois), mostra "-" em vez de quebrar.
+function findItemCode(m) {
+  const product = products.find((p) => p.code === m.code);
+  if (!product) return '';
+  const variant = (product.variants || []).find((v) => v.color === m.color);
+  if (!variant) return '';
+  return (variant.itemCodes && variant.itemCodes[m.size]) || '';
+}
+
 function renderHistory() {
   const typeFilter = historyTypeFilter.value;
   const textFilter = historyFilterInput.value.trim().toLowerCase();
@@ -147,14 +167,14 @@ function renderHistory() {
   const filtered = movements.filter((m) => {
     if (typeFilter && m.type !== typeFilter) return false;
     if (textFilter) {
-      const haystack = `${m.code} ${m.description} ${m.color}`.toLowerCase();
+      const haystack = `${m.code} ${findItemCode(m)} ${m.description} ${m.color}`.toLowerCase();
       if (!haystack.includes(textFilter)) return false;
     }
     return true;
   });
 
   if (filtered.length === 0) {
-    historyTableBody.innerHTML = '<tr class="empty-row"><td colspan="11">Nenhuma movimentacao encontrada.</td></tr>';
+    historyTableBody.innerHTML = '<tr class="empty-row"><td colspan="12">Nenhuma movimentacao encontrada.</td></tr>';
     return;
   }
 
@@ -178,6 +198,7 @@ function renderHistory() {
     tr.innerHTML = `
       <td>${m.createdAt ? dateFormatter.format(new Date(m.createdAt)) : ''}</td>
       <td>${typeBadge(m.type)}</td>
+      <td>${escapeHtml(findItemCode(m) || '-')}</td>
       <td>${escapeHtml(m.code)} - ${escapeHtml(m.description)}</td>
       <td>${escapeHtml(m.color)} / ${escapeHtml(m.size)}</td>
       <td>${m.quantity}</td>
@@ -211,7 +232,8 @@ historyTableBody.addEventListener('click', async (e) => {
       btn.disabled = false;
       return;
     }
-    await Promise.all([loadProducts(), loadHistory({ reset: true })]);
+    await Promise.all([loadProducts(), loadHistory({ reset: true }), loadAllMovementsForNotes()]);
+    renderHistory();
   } catch (err) {
     alert('Erro de conexao com o servidor.');
     btn.disabled = false;
@@ -222,18 +244,24 @@ historyTypeFilter.addEventListener('change', renderHistory);
 historyFilterInput.addEventListener('input', renderHistory);
 
 // -------------------- Notas de compra / venda (agrupadas por NF) --------------------
-// Agrupa as movimentacoes ja carregadas (mesmo lote usado no Historico
-// abaixo) por numero de NF, uma linha por nota em vez de uma linha por item.
+// Agrupa por numero de NF, uma linha por nota em vez de uma linha por item.
 // So movimentacoes com NF preenchida entram aqui (lancamentos avulsos sem
 // nota continuam aparecendo apenas no Historico). "Valor total" inclui o
 // frete, igual a tela "Ver nota".
+//
+// Importante: usa "allMovementsForNotes" (busca TODAS as movimentacoes, sem
+// o limite de paginacao do Historico abaixo) e nao o array "movements" - uma
+// loja com muitas movimentacoes facilmente passa das 150 mais recentes
+// carregadas no Historico, e uma nota mais antiga (ex.: uma venda lancada
+// antes de uma importacao grande de compras) ficaria de fora dessas grades
+// mesmo tendo sido lancada normalmente.
 function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
 function groupMovementsByNote(type) {
   const map = new Map();
-  movements.forEach((m) => {
+  allMovementsForNotes.forEach((m) => {
     if (m.type !== type || !m.nf || m.cancelled) return;
     if (!map.has(m.nf)) {
       map.set(m.nf, { nf: m.nf, subtotal: 0, freight: 0, party: null, createdAt: m.createdAt });
@@ -292,6 +320,29 @@ function renderNotesGrids() {
   renderNotesGrid(saleNotesTableBody, 'sale');
 }
 
+// Busca TODAS as movimentacoes (paginando em lotes de 300, o maximo aceito
+// pela API por chamada) para alimentar as grades de notas acima. Para uma
+// loja pequena isso costuma ser 1-2 chamadas; o limite de 20 paginas (ate
+// 6000 movimentacoes) e so uma trava de seguranca contra um loop infinito.
+async function loadAllMovementsForNotes() {
+  const collected = [];
+  let before = null;
+  for (let page = 0; page < 20; page += 1) {
+    const params = new URLSearchParams({ limit: '300' });
+    if (before) params.set('before', before);
+    // eslint-disable-next-line no-await-in-loop
+    const res = await authedFetch(`/api/stock/movements?${params.toString()}`);
+    // eslint-disable-next-line no-await-in-loop
+    const data = await res.json();
+    const items = data.items || [];
+    collected.push(...items);
+    if (items.length < 300) break;
+    before = items[items.length - 1].createdAt;
+  }
+  allMovementsForNotes = collected;
+  renderNotesGrids();
+}
+
 async function loadHistory({ reset = false } = {}) {
   const params = new URLSearchParams({ limit: '150' });
   if (!reset && movements.length) {
@@ -306,7 +357,6 @@ async function loadHistory({ reset = false } = {}) {
   movements = reset ? items : movements.concat(items);
   loadMoreBtn.hidden = items.length === 0;
   renderHistory();
-  renderNotesGrids();
 }
 
 loadMoreBtn.addEventListener('click', () => loadHistory({ reset: false }));

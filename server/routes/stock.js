@@ -24,6 +24,10 @@ function toIso(value) {
   return value;
 }
 
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+
 // Erro com um status HTTP amarrado, para poder jogar de dentro de uma
 // transacao do Firestore e ainda assim responder com o codigo certo.
 class HttpError extends Error {
@@ -47,6 +51,7 @@ function serializeProductForStock(doc) {
       sizes: Array.isArray(v.sizes) ? v.sizes : [],
       stock: v.stock || {},
       avgCost: v.avgCost || {},
+      itemCodes: v.itemCodes && typeof v.itemCodes === 'object' ? v.itemCodes : {},
       imageUrl: v.imageUrl || null,
     })),
   };
@@ -72,6 +77,9 @@ function serializeMovement(doc) {
     nf: data.nf || null,
     invoiceDate: data.invoiceDate || null,
     freightShare: data.freightShare ?? null,
+    vendedor: data.vendedor || null,
+    comissaoPercentual: data.comissaoPercentual ?? null,
+    comissaoValue: data.comissaoValue ?? null,
     stockAfter: data.stockAfter,
     cancelled: Boolean(data.cancelled),
     createdByEmail: data.createdByEmail || null,
@@ -290,6 +298,9 @@ async function runStockMovementTransaction({
   nf = null,
   invoiceDate = null,
   freightShare = null,
+  vendedor = null,
+  comissaoPercentual = null,
+  comissaoValue = null,
   createdByEmail,
 }) {
   const docRef = productsRef.doc(code);
@@ -366,6 +377,9 @@ async function runStockMovementTransaction({
       nf,
       invoiceDate,
       freightShare,
+      vendedor,
+      comissaoPercentual,
+      comissaoValue,
       stockAfter: newQty,
       cancelled: false,
       cancelledAt: null,
@@ -532,6 +546,9 @@ router.post('/sale-note/commit', async (req, res) => {
     const quantity = Number(line && line.quantity);
     const unitPrice = Number(line && line.unitPrice);
     const freightShare = Number((line && line.freightShare) || 0);
+    const comissaoPercentual = line && line.comissaoPercentual != null && line.comissaoPercentual !== ''
+      ? Number(line.comissaoPercentual)
+      : null;
 
     if (!line || !line.productCode) errors.push(`${label}: selecione um produto.`);
     if (!line || !line.variantId) errors.push(`${label}: selecione uma cor.`);
@@ -539,6 +556,9 @@ router.post('/sale-note/commit', async (req, res) => {
     if (!Number.isInteger(quantity) || quantity <= 0) errors.push(`${label}: quantidade invalida.`);
     if (!Number.isFinite(unitPrice) || unitPrice < 0) errors.push(`${label}: preco unitario invalido.`);
     if (!Number.isFinite(freightShare) || freightShare < 0) errors.push(`${label}: rateio de frete invalido.`);
+    if (comissaoPercentual !== null && (!Number.isFinite(comissaoPercentual) || comissaoPercentual < 0 || comissaoPercentual > 100)) {
+      errors.push(`${label}: percentual de comissao invalido (use um numero entre 0 e 100).`);
+    }
   });
 
   if (errors.length) {
@@ -557,6 +577,13 @@ router.post('/sale-note/commit', async (req, res) => {
     const customer = line.cliente && String(line.cliente).trim()
       ? { name: String(line.cliente).trim(), contact: '' }
       : null;
+    const vendedor = line.vendedor && String(line.vendedor).trim() ? String(line.vendedor).trim() : null;
+    const comissaoPercentual = line.comissaoPercentual != null && line.comissaoPercentual !== ''
+      ? Number(line.comissaoPercentual)
+      : null;
+    const comissaoValue = comissaoPercentual !== null
+      ? round2(quantity * unitPrice * (comissaoPercentual / 100))
+      : null;
 
     try {
       // eslint-disable-next-line no-await-in-loop
@@ -572,6 +599,9 @@ router.post('/sale-note/commit', async (req, res) => {
         nf: line.nf || null,
         invoiceDate: line.invoiceDate || null,
         freightShare,
+        vendedor,
+        comissaoPercentual,
+        comissaoValue,
         createdByEmail: req.admin.email,
       });
       posted.push({ rowNumber: i, movementId: movement.id });

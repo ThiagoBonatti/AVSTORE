@@ -347,6 +347,13 @@ a { color: inherit; }
   font-size: 0.78rem;
 }
 
+/* Usado no campo "Codigo de barras" da nota de venda quando o codigo digitado
+   nao bate com nenhum item do catalogo - so um destaque visual, nao bloqueia
+   nada (o admin pode preencher Produto/Cor/Tamanho na mao mesmo assim). */
+.input-error {
+  border-color: var(--color-danger) !important;
+}
+
 /* O seletor ".product-form label" (mais abaixo) tem especificidade maior que
    o "[hidden]" da folha de estilo padrao do navegador, entao sem esta regra
    o campo de fornecedor continuaria visivel mesmo com o atributo "hidden"

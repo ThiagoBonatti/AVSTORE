@@ -20,7 +20,10 @@ const headerNfInput = document.getElementById('header-nf');
 const headerDataNfInput = document.getElementById('header-data-nf');
 const headerClienteInput = document.getElementById('header-cliente');
 const headerFreteInput = document.getElementById('header-frete');
+const headerVendedorInput = document.getElementById('header-vendedor');
+const headerComissaoInput = document.getElementById('header-comissao');
 
+const manualCodeInput = document.getElementById('manual-code');
 const manualProductSelect = document.getElementById('manual-product');
 const manualColorSelect = document.getElementById('manual-color');
 const manualSizeSelect = document.getElementById('manual-size');
@@ -34,6 +37,8 @@ const emptyItemsHint = document.getElementById('empty-items-hint');
 const totalsSubtotalEl = document.getElementById('totals-subtotal');
 const totalsFreightEl = document.getElementById('totals-freight');
 const totalsGrandEl = document.getElementById('totals-grand');
+const totalsCommissionWrap = document.getElementById('totals-commission-wrap');
+const totalsCommissionEl = document.getElementById('totals-commission');
 const finalizeBtn = document.getElementById('finalize-btn');
 const finalizeMessage = document.getElementById('finalize-message');
 
@@ -142,6 +147,59 @@ function updateManualSizeOptions() {
 manualProductSelect.addEventListener('change', updateManualColorOptions);
 manualColorSelect.addEventListener('change', updateManualSizeOptions);
 
+// -------------------- Codigo de barras (atalho) --------------------
+// Procura o codigo digitado em todos os produtos/cores/tamanhos ja
+// carregados (mesmo campo usado em Produtos/Estoque atual: variant.itemCodes[tamanho])
+// e, se achar, preenche Produto/Cor/Tamanho e o Valor unitario (preco de
+// venda cadastrado do produto) sozinho. Os campos continuam editaveis depois
+// - isto e so um atalho, nao substitui o preenchimento manual.
+function findByItemCode(rawCode) {
+  const code = String(rawCode || '').trim();
+  if (!code) return null;
+  for (const product of catalogProducts) {
+    for (const variant of product.variants || []) {
+      const itemCodes = variant.itemCodes || {};
+      const size = Object.keys(itemCodes).find((s) => String(itemCodes[s] || '').trim() === code);
+      if (size) return { product, variant, size };
+    }
+  }
+  return null;
+}
+
+function applyCodeMatch(match) {
+  manualProductSelect.value = match.product.code;
+  updateManualColorOptions();
+  manualColorSelect.value = match.variant.id;
+  updateManualSizeOptions();
+  manualSizeSelect.value = match.size;
+  if (match.product.price != null) {
+    manualUnitPriceInput.value = match.product.price;
+  }
+}
+
+function handleManualCodeLookup() {
+  const value = manualCodeInput.value.trim();
+  if (!value) {
+    manualCodeInput.classList.remove('input-error');
+    return;
+  }
+  const match = findByItemCode(value);
+  if (match) {
+    applyCodeMatch(match);
+    manualCodeInput.classList.remove('input-error');
+  } else {
+    manualCodeInput.classList.add('input-error');
+  }
+}
+
+manualCodeInput.addEventListener('change', handleManualCodeLookup);
+manualCodeInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    handleManualCodeLookup();
+  }
+});
+
 manualAddBtn.addEventListener('click', () => {
   const product = catalogProducts.find((p) => p.code === manualProductSelect.value);
   const variant = product && product.variants.find((v) => v.id === manualColorSelect.value);
@@ -181,6 +239,8 @@ manualAddBtn.addEventListener('click', () => {
     unitPrice,
   });
 
+  manualCodeInput.value = '';
+  manualCodeInput.classList.remove('input-error');
   manualQuantityInput.value = '1';
   manualUnitPriceInput.value = '';
   renderItems();
@@ -205,6 +265,16 @@ function computeFreightShares(lineList, freight) {
 function currentFreight() {
   const v = Number(headerFreteInput.value);
   return Number.isFinite(v) && v >= 0 ? v : 0;
+}
+
+// -------------------- Comissao --------------------
+// So um numero entre 0 e 100 vale como percentual valido - vazio ou fora
+// dessa faixa conta como "sem comissao" (nao trava o lancamento da nota).
+function currentComissaoPercentual() {
+  const raw = headerComissaoInput.value.trim();
+  if (!raw) return null;
+  const v = Number(raw);
+  return Number.isFinite(v) && v >= 0 && v <= 100 ? v : null;
 }
 
 // -------------------- Itens da nota --------------------
@@ -239,9 +309,18 @@ function renderItems() {
   totalsSubtotalEl.textContent = currency.format(subtotalSum);
   totalsFreightEl.textContent = currency.format(freight);
   totalsGrandEl.textContent = currency.format(round2(subtotalSum + freight));
+
+  const comissaoPercentual = currentComissaoPercentual();
+  if (comissaoPercentual !== null) {
+    totalsCommissionWrap.hidden = false;
+    totalsCommissionEl.textContent = currency.format(round2(subtotalSum * (comissaoPercentual / 100)));
+  } else {
+    totalsCommissionWrap.hidden = true;
+  }
 }
 
 headerFreteInput.addEventListener('input', renderItems);
+headerComissaoInput.addEventListener('input', renderItems);
 
 itemsTableBody.addEventListener('click', (e) => {
   const removeBtn = e.target.closest('[data-action="remove-line"]');
@@ -277,6 +356,8 @@ finalizeBtn.addEventListener('click', async () => {
   const nf = headerNfInput.value.trim() || null;
   const invoiceDate = headerDataNfInput.value ? new Date(headerDataNfInput.value).toISOString() : null;
   const cliente = headerClienteInput.value.trim() || null;
+  const vendedor = headerVendedorInput.value.trim() || null;
+  const comissaoPercentual = currentComissaoPercentual();
   const freight = currentFreight();
   const shares = computeFreightShares(lines, freight);
 
@@ -291,6 +372,8 @@ finalizeBtn.addEventListener('click', async () => {
       nf,
       invoiceDate,
       cliente,
+      vendedor,
+      comissaoPercentual,
     })),
   };
 
@@ -326,6 +409,8 @@ finalizeBtn.addEventListener('click', async () => {
     headerDataNfInput.value = '';
     headerClienteInput.value = '';
     headerFreteInput.value = '0';
+    headerVendedorInput.value = '';
+    headerComissaoInput.value = '';
     renderItems();
     showFinalizeMessage(`Nota de venda lancada com sucesso: ${data.summary.movementsCreated} venda(s) registrada(s).`, 'success');
     await loadCatalog();

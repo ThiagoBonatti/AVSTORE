@@ -49,12 +49,24 @@
           Valor do frete (R$) <span class="field-hint">(opcional)</span>
           <input type="number" id="header-frete" min="0" step="0.01" value="0" />
         </label>
+        <label>
+          Vendedor <span class="field-hint">(opcional)</span>
+          <input type="text" id="header-vendedor" placeholder="Nome do vendedor" />
+        </label>
+        <label>
+          Comissao (%) <span class="field-hint">(opcional)</span>
+          <input type="number" id="header-comissao" min="0" max="100" step="0.01" placeholder="0" />
+        </label>
       </form>
     </section>
 
     <section class="admin-card">
       <h2>Adicionar item</h2>
       <form id="manual-item-form" class="product-form">
+        <label class="full">
+          Codigo de barras <span class="field-hint">(opcional - preenche os campos abaixo automaticamente)</span>
+          <input type="text" id="manual-code" placeholder="Digite ou leia o codigo de barras" />
+        </label>
         <label class="full">
           Produto (ja cadastrado)
           <select id="manual-product">
@@ -115,6 +127,7 @@
           <span>Subtotal: <strong id="totals-subtotal">R$ 0,00</strong></span>
           <span>Frete: <strong id="totals-freight">R$ 0,00</strong></span>
           <span>Total com frete: <strong id="totals-grand">R$ 0,00</strong></span>
+          <span id="totals-commission-wrap" hidden>Comissao: <strong id="totals-commission">R$ 0,00</strong></span>
         </div>
         <button type="button" id="finalize-btn" class="btn btn-primary">Finalizar nota de venda</button>
       </div>
