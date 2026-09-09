@@ -1,4 +1,5 @@
 const express = require('express');
+const XLSX = require('xlsx');
 const { db, FieldValue } = require('../firebase');
 const { requireAuth } = require('../middleware/auth');
 const { uploadSheet } = require('../middleware/uploadSheet');
@@ -141,6 +142,91 @@ router.get('/movements', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro ao carregar o historico de movimentacoes.' });
+  }
+});
+
+// Indice "codigo do produto + cor + tamanho -> codigo de barras (item code)"
+// usado so pela exportacao abaixo - a movimentacao em si nao guarda o
+// itemCode (so a variante do produto guarda), mesma logica de
+// public/admin/js/estoque.js:findItemCode(), so que do lado do servidor.
+async function buildItemCodeByVariantIndex() {
+  const snapshot = await productsRef.get();
+  const index = new Map();
+  snapshot.docs.forEach((doc) => {
+    const data = doc.data() || {};
+    const variants = Array.isArray(data.variants) ? data.variants : [];
+    variants.forEach((v) => {
+      const itemCodes = v.itemCodes && typeof v.itemCodes === 'object' ? v.itemCodes : {};
+      Object.entries(itemCodes).forEach(([size, code]) => {
+        if (!code) return;
+        index.set(`${doc.id}|${v.color}|${size}`, code);
+      });
+    });
+  });
+  return index;
+}
+
+// GET /api/stock/movements/export?type=&search= - exporta o Historico de
+// movimentacoes (todas, sem o limite de paginacao usado na tela) para uma
+// planilha .xlsx, com as mesmas colunas exibidas na tabela (mais Codigo do
+// produto e Descricao separados, que na tela ficam juntos numa unica
+// coluna). Respeita os mesmos filtros de tipo/busca que a tela tem
+// aplicados no momento do clique, para o admin poder exportar exatamente o
+// que esta vendo (ou tudo, se nao tiver filtro nenhum).
+router.get('/movements/export', async (req, res) => {
+  try {
+    let query = movementsRef;
+    if (req.query.type === 'purchase' || req.query.type === 'sale') {
+      query = query.where('type', '==', req.query.type);
+    }
+    const [snapshot, itemCodeIndex] = await Promise.all([query.get(), buildItemCodeByVariantIndex()]);
+
+    let items = snapshot.docs.map(serializeMovement);
+    items.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+    const search = String(req.query.search || '').trim().toLowerCase();
+    if (search) {
+      items = items.filter((m) => {
+        const haystack = `${m.code} ${m.description} ${m.color} ${m.nf || ''}`.toLowerCase();
+        return haystack.includes(search);
+      });
+    }
+
+    const rows = items.map((m) => ({
+      Data: m.createdAt ? new Date(m.createdAt) : '',
+      Tipo: m.type === 'purchase' ? 'Compra' : 'Venda',
+      'Nro nota': m.nf || '',
+      'Codigo de barras': itemCodeIndex.get(`${m.code}|${m.color}|${m.size}`) || '',
+      'Codigo do produto': m.code,
+      Descricao: m.description,
+      Cor: m.color,
+      Tamanho: m.size,
+      Quantidade: m.quantity,
+      'Valor unitario': m.unitPrice,
+      'Valor total': m.totalPrice,
+      Margem: m.type === 'sale' ? m.marginTotal : '',
+      'Fornecedor/Cliente': m.type === 'purchase' ? (m.supplier && m.supplier.name) || '' : (m.customer && m.customer.name) || '',
+      Usuario: m.createdByEmail || '',
+      Cancelada: m.cancelled ? 'Sim' : 'Nao',
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(rows, { cellDates: true });
+    worksheet['!cols'] = [
+      { wch: 18 }, { wch: 9 }, { wch: 12 }, { wch: 16 }, { wch: 26 }, { wch: 36 },
+      { wch: 16 }, { wch: 10 }, { wch: 11 }, { wch: 13 }, { wch: 13 }, { wch: 11 },
+      { wch: 22 }, { wch: 24 }, { wch: 10 },
+    ];
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Historico');
+    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+
+    const today = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="historico-movimentacoes-${today}.xlsx"`);
+    res.send(buffer);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao exportar o historico de movimentacoes.' });
   }
 });
 
@@ -521,6 +607,32 @@ router.delete('/movements/:id', async (req, res) => {
   }
 });
 
+// PATCH /api/stock/movements/:id - corrige o numero da nota (nf) de uma
+// movimentacao ja lancada. Uso principal: vendas/compras avulsas lancadas
+// sem numero de nota (antes de esse campo virar obrigatorio na tela de Nota
+// de venda) que o admin quer corrigir depois, para que passem a aparecer nas
+// grades de "Notas de compra/venda" e ganhem o link "Ver nota". So mexe no
+// campo "nf" - nao toca em estoque, custo ou qualquer outro dado, entao nao
+// precisa de transacao.
+router.patch('/movements/:id', async (req, res) => {
+  if (!req.body || !('nf' in req.body)) {
+    return res.status(400).json({ error: 'Informe o numero da nota.' });
+  }
+  const nf = String(req.body.nf || '').trim() || null;
+
+  try {
+    const movementRef = movementsRef.doc(req.params.id);
+    const snap = await movementRef.get();
+    if (!snap.exists) return res.status(404).json({ error: 'Movimentacao nao encontrada.' });
+
+    await movementRef.update({ nf });
+    res.json({ ok: true, id: movementRef.id, nf });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao atualizar o numero da nota.' });
+  }
+});
+
 // -------------------- Nota de venda (lancamento manual, varios itens) --------------------
 // POST /api/stock/sale-note/commit - lanca varias vendas de uma vez, todas
 // pertencendo a mesma nota (mesma NF/data/cliente), com rateio de frete ja
@@ -553,6 +665,7 @@ router.post('/sale-note/commit', async (req, res) => {
     if (!line || !line.productCode) errors.push(`${label}: selecione um produto.`);
     if (!line || !line.variantId) errors.push(`${label}: selecione uma cor.`);
     if (!line || !line.size) errors.push(`${label}: selecione um tamanho.`);
+    if (!line || !String(line.nf || '').trim()) errors.push(`${label}: informe o numero da nota.`);
     if (!Number.isInteger(quantity) || quantity <= 0) errors.push(`${label}: quantidade invalida.`);
     if (!Number.isFinite(unitPrice) || unitPrice < 0) errors.push(`${label}: preco unitario invalido.`);
     if (!Number.isFinite(freightShare) || freightShare < 0) errors.push(`${label}: rateio de frete invalido.`);

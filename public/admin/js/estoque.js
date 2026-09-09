@@ -23,6 +23,8 @@ const historyTableBody = document.getElementById('history-table-body');
 const historyTypeFilter = document.getElementById('history-type-filter');
 const historyFilterInput = document.getElementById('history-filter');
 const loadMoreBtn = document.getElementById('load-more-btn');
+const exportHistoryBtn = document.getElementById('export-history-btn');
+const exportHistoryMessage = document.getElementById('export-history-message');
 
 const purchaseNotesTableBody = document.getElementById('purchase-notes-table-body');
 const saleNotesTableBody = document.getElementById('sale-notes-table-body');
@@ -167,14 +169,14 @@ function renderHistory() {
   const filtered = movements.filter((m) => {
     if (typeFilter && m.type !== typeFilter) return false;
     if (textFilter) {
-      const haystack = `${m.code} ${findItemCode(m)} ${m.description} ${m.color}`.toLowerCase();
+      const haystack = `${m.code} ${findItemCode(m)} ${m.description} ${m.color} ${m.nf || ''}`.toLowerCase();
       if (!haystack.includes(textFilter)) return false;
     }
     return true;
   });
 
   if (filtered.length === 0) {
-    historyTableBody.innerHTML = '<tr class="empty-row"><td colspan="12">Nenhuma movimentacao encontrada.</td></tr>';
+    historyTableBody.innerHTML = '<tr class="empty-row"><td colspan="13">Nenhuma movimentacao encontrada.</td></tr>';
     return;
   }
 
@@ -193,11 +195,14 @@ function renderHistory() {
     const cancelBtn = m.cancelled
       ? '<span class="field-hint">Cancelada</span>'
       : `<button class="btn btn-ghost btn-sm" data-action="cancel" data-id="${m.id}">Cancelar</button>`;
-    const actionCell = `${verNotaLink}${cancelBtn}`;
+    const editNfLabel = m.nf ? 'Editar nota' : 'Adicionar nota';
+    const editNfBtn = `<button class="btn btn-ghost btn-sm" data-action="edit-nf" data-id="${m.id}">${editNfLabel}</button>`;
+    const actionCell = `${verNotaLink}${editNfBtn}${cancelBtn}`;
 
     tr.innerHTML = `
       <td>${m.createdAt ? dateFormatter.format(new Date(m.createdAt)) : ''}</td>
       <td>${typeBadge(m.type)}</td>
+      <td>${escapeHtml(m.nf || '-')}</td>
       <td>${escapeHtml(findItemCode(m) || '-')}</td>
       <td>${escapeHtml(m.code)} - ${escapeHtml(m.description)}</td>
       <td>${escapeHtml(m.color)} / ${escapeHtml(m.size)}</td>
@@ -214,34 +219,118 @@ function renderHistory() {
 }
 
 historyTableBody.addEventListener('click', async (e) => {
-  const btn = e.target.closest('[data-action="cancel"]');
-  if (!btn) return;
+  const cancelBtn = e.target.closest('[data-action="cancel"]');
+  const editNfBtn = e.target.closest('[data-action="edit-nf"]');
+  if (!cancelBtn && !editNfBtn) return;
+
+  const btn = cancelBtn || editNfBtn;
   const movement = movements.find((m) => m.id === btn.dataset.id);
   if (!movement) return;
 
-  if (!confirm(`Cancelar esta ${movement.type === 'purchase' ? 'compra' : 'venda'} de ${movement.quantity} unidade(s) de ${movement.description} (${movement.color}/${movement.size})?`)) {
+  if (cancelBtn) {
+    if (!confirm(`Cancelar esta ${movement.type === 'purchase' ? 'compra' : 'venda'} de ${movement.quantity} unidade(s) de ${movement.description} (${movement.color}/${movement.size})?`)) {
+      return;
+    }
+
+    btn.disabled = true;
+    try {
+      const res = await authedFetch(`/api/stock/movements/${encodeURIComponent(movement.id)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Erro ao cancelar a movimentacao.');
+        btn.disabled = false;
+        return;
+      }
+      await Promise.all([loadProducts(), loadHistory({ reset: true }), loadAllMovementsForNotes()]);
+      renderHistory();
+    } catch (err) {
+      alert('Erro de conexao com o servidor.');
+      btn.disabled = false;
+    }
     return;
   }
 
-  btn.disabled = true;
+  // "Adicionar nota" / "Editar nota" - corrige so o numero da nota de uma
+  // movimentacao ja lancada (ex.: vendas antigas, lancadas antes do numero
+  // da nota virar obrigatorio na tela de Nota de venda). Depois de salvar, a
+  // movimentacao passa a aparecer nas grades de Notas de compra/venda e
+  // ganha o link "Ver nota" (se ainda nao tivesse).
+  const novoNf = prompt(
+    `Numero da nota para ${movement.description} (${movement.color}/${movement.size}):`,
+    movement.nf || ''
+  );
+  if (novoNf === null) return; // cancelou o prompt
+
+  editNfBtn.disabled = true;
   try {
-    const res = await authedFetch(`/api/stock/movements/${encodeURIComponent(movement.id)}`, { method: 'DELETE' });
+    const res = await authedFetch(`/api/stock/movements/${encodeURIComponent(movement.id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nf: novoNf }),
+    });
     const data = await res.json();
     if (!res.ok) {
-      alert(data.error || 'Erro ao cancelar a movimentacao.');
-      btn.disabled = false;
+      alert(data.error || 'Erro ao atualizar o numero da nota.');
+      editNfBtn.disabled = false;
       return;
     }
-    await Promise.all([loadProducts(), loadHistory({ reset: true }), loadAllMovementsForNotes()]);
+    await Promise.all([loadHistory({ reset: true }), loadAllMovementsForNotes()]);
     renderHistory();
   } catch (err) {
     alert('Erro de conexao com o servidor.');
-    btn.disabled = false;
+    editNfBtn.disabled = false;
   }
 });
 
 historyTypeFilter.addEventListener('change', renderHistory);
 historyFilterInput.addEventListener('input', renderHistory);
+
+// -------------------- Exportar Historico para Excel --------------------
+// O download exige o token de autenticacao no header (mesmo esquema de todo
+// o app), entao nao da pra so usar um link <a href="..."> direto - o
+// navegador nao mandaria o Authorization junto. Em vez disso busca o arquivo
+// via authedFetch(), pega a resposta como blob e simula o clique num link
+// temporario para disparar o download. Respeita os mesmos filtros de
+// tipo/busca que a tela tem aplicados no momento do clique.
+function showExportMessage(text, type) {
+  exportHistoryMessage.textContent = text;
+  exportHistoryMessage.className = `form-message ${type}`;
+  exportHistoryMessage.hidden = false;
+}
+function hideExportMessage() {
+  exportHistoryMessage.hidden = true;
+}
+
+exportHistoryBtn.addEventListener('click', async () => {
+  hideExportMessage();
+  exportHistoryBtn.disabled = true;
+  try {
+    const params = new URLSearchParams();
+    if (historyTypeFilter.value) params.set('type', historyTypeFilter.value);
+    if (historyFilterInput.value.trim()) params.set('search', historyFilterInput.value.trim());
+
+    const res = await authedFetch(`/api/stock/movements/export?${params.toString()}`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showExportMessage(data.error || 'Erro ao exportar o historico.', 'error');
+      return;
+    }
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `historico-movimentacoes-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    showExportMessage('Erro de conexao com o servidor.', 'error');
+  } finally {
+    exportHistoryBtn.disabled = false;
+  }
+});
 
 // -------------------- Notas de compra / venda (agrupadas por NF) --------------------
 // Agrupa por numero de NF, uma linha por nota em vez de uma linha por item.

@@ -352,6 +352,11 @@ finalizeBtn.addEventListener('click', async () => {
     showFinalizeMessage('Adicione ao menos um item antes de finalizar a nota.', 'error');
     return;
   }
+  if (!headerNfInput.value.trim()) {
+    showFinalizeMessage('Informe o numero da nota antes de finalizar.', 'error');
+    headerNfInput.focus();
+    return;
+  }
 
   const nf = headerNfInput.value.trim() || null;
   const invoiceDate = headerDataNfInput.value ? new Date(headerDataNfInput.value).toISOString() : null;

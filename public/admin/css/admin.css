@@ -146,6 +146,12 @@ a { color: inherit; }
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   padding: 20px;
+  /* .admin-card e filho de ".admin-main" (display:flex; flex-direction:column).
+     Por padrao um item flex tem min-width:auto, entao sem isto o card recusa
+     encolher e cresce para caber a tabela inteira (empurrando a pagina toda
+     para o lado, cortando o conteudo em telas estreitas) em vez de deixar o
+     ".table-wrapper" abaixo rolar horizontalmente sozinho. */
+  min-width: 0;
 }
 
 .admin-card h2 {
@@ -376,6 +382,7 @@ a { color: inherit; }
   padding: 8px 12px;
   font-size: 0.85rem;
   min-width: 220px;
+  max-width: 100%;
 }
 
 .history-filters {
@@ -545,7 +552,7 @@ a { color: inherit; }
 }
 
 /* Product table */
-.table-wrapper { overflow-x: auto; }
+.table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
 th { color: var(--color-text-muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; }

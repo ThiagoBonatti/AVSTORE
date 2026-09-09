@@ -97,14 +97,17 @@
             <option value="purchase">Compras</option>
           </select>
           <input type="search" id="history-filter" class="table-filter" placeholder="Filtrar por produto ou cor..." />
+          <button type="button" id="export-history-btn" class="btn btn-ghost btn-sm">Exportar Excel</button>
         </div>
       </div>
+      <p id="export-history-message" class="form-message" hidden></p>
       <div class="table-wrapper">
         <table>
           <thead>
             <tr>
               <th>Data</th>
               <th>Tipo</th>
+              <th>Nro nota</th>
               <th>Codigo</th>
               <th>Produto</th>
               <th>Cor / Tamanho</th>
