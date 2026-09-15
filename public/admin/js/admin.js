@@ -143,7 +143,13 @@ if (!form) {
         sizes.forEach((size) => {
           rows.push({
             product: p,
-            imageUrl: v.imageUrl || p.imageUrl || '',
+            // So a imagem DESTA cor - nunca a de outra cor do mesmo produto.
+            // "p.imageUrl" (usado so no fallback acima, para produtos antigos
+            // sem array de variacoes) e a foto da PRIMEIRA cor do produto; se
+            // ele fosse usado aqui tambem, trocar a foto da primeira cor faria
+            // a tabela mostrar essa foto nova em toda cor que ainda nao tem
+            // imagem propria, parecendo que "varios produtos" mudaram juntos.
+            imageUrl: v.imageUrl || '',
             itemCode: (v.itemCodes && v.itemCodes[size]) || '',
             color: v.color || '',
             size: size || '',
@@ -316,7 +322,21 @@ if (!form) {
     priceInput.value = product.price;
 
     variantsList.innerHTML = '';
-    (product.variants || []).forEach((v) => createVariantRow(v));
+    // Defesa contra dados antigos com "id" ausente ou duplicado entre cores
+    // do mesmo produto: nesse caso o servidor nao tinha como saber qual
+    // imagem enviada pertencia a qual cor, e a foto de uma cor podia acabar
+    // aparecendo em outra ao salvar (ver parseVariants no backend). Aqui, ao
+    // abrir a edicao, qualquer id ausente ou repetido ganha um id novo e
+    // unico - a cor mantem sua imagem atual normalmente, so passa a exigir
+    // uma nova foto se for salva de novo (nao ha como saber com certeza a
+    // qual imagem ela pertencia antes).
+    const seenIds = new Set();
+    (product.variants || []).forEach((v) => {
+      let id = v.id;
+      if (!id || seenIds.has(id)) id = makeVariantId();
+      seenIds.add(id);
+      createVariantRow({ ...v, id });
+    });
     if (!variantsList.querySelector('[data-variant-row]')) createVariantRow();
 
     formTitle.textContent = `Editando produto: ${product.code}`;

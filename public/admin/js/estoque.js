@@ -26,15 +26,12 @@ const loadMoreBtn = document.getElementById('load-more-btn');
 const exportHistoryBtn = document.getElementById('export-history-btn');
 const exportHistoryMessage = document.getElementById('export-history-message');
 
-const purchaseNotesTableBody = document.getElementById('purchase-notes-table-body');
-
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const dateFormatter = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 
 let currentUser = null;
 let products = [];
 let movements = [];
-let allMovementsForNotes = [];
 
 function escapeHtml(str) {
   const div = document.createElement('div');
@@ -78,7 +75,7 @@ onAuthStateChanged(authClient, async (user) => {
 
   currentUser = user;
   adminUsernameEl.textContent = user.email;
-  await Promise.all([loadProducts(), loadHistory({ reset: true }), loadAllMovementsForNotes()]);
+  await Promise.all([loadProducts(), loadHistory({ reset: true })]);
   // loadProducts() e loadHistory() rodam em paralelo (mais rapido), mas a
   // coluna "Codigo" do historico depende do catalogo ja carregado - redesenha
   // por garantia caso loadHistory tenha terminado primeiro.
@@ -128,7 +125,7 @@ function renderStockTable() {
     else if (r.qty <= 2) stockClass = 'stock-low';
     tr.innerHTML = `
       <td>${escapeHtml(r.itemCode || '-')}</td>
-      <td>${escapeHtml(r.code)} - ${escapeHtml(r.description)}</td>
+      <td class="description-cell">${escapeHtml(r.description)}</td>
       <td>${escapeHtml(r.color)}</td>
       <td>${escapeHtml(r.size)}</td>
       <td class="${stockClass}">${r.qty}</td>
@@ -240,7 +237,7 @@ historyTableBody.addEventListener('click', async (e) => {
         btn.disabled = false;
         return;
       }
-      await Promise.all([loadProducts(), loadHistory({ reset: true }), loadAllMovementsForNotes()]);
+      await Promise.all([loadProducts(), loadHistory({ reset: true })]);
       renderHistory();
     } catch (err) {
       alert('Erro de conexao com o servidor.');
@@ -252,8 +249,8 @@ historyTableBody.addEventListener('click', async (e) => {
   // "Adicionar nota" / "Editar nota" - corrige so o numero da nota de uma
   // movimentacao ja lancada (ex.: vendas antigas, lancadas antes do numero
   // da nota virar obrigatorio na tela de Nota de venda). Depois de salvar, a
-  // movimentacao passa a aparecer nas grades de Notas de compra/venda e
-  // ganha o link "Ver nota" (se ainda nao tivesse).
+  // movimentacao passa a aparecer nas grades de Notas de Compra/Venda (nas
+  // telas dedicadas) e ganha o link "Ver nota" (se ainda nao tivesse).
   const novoNf = prompt(
     `Numero da nota para ${movement.description} (${movement.color}/${movement.size}):`,
     movement.nf || ''
@@ -273,7 +270,7 @@ historyTableBody.addEventListener('click', async (e) => {
       editNfBtn.disabled = false;
       return;
     }
-    await Promise.all([loadHistory({ reset: true }), loadAllMovementsForNotes()]);
+    await loadHistory({ reset: true });
     renderHistory();
   } catch (err) {
     alert('Erro de conexao com o servidor.');
@@ -331,107 +328,10 @@ exportHistoryBtn.addEventListener('click', async () => {
   }
 });
 
-// -------------------- Notas de compra (agrupadas por NF) --------------------
-// Agrupa por numero de NF, uma linha por nota em vez de uma linha por item.
-// So movimentacoes com NF preenchida entram aqui (lancamentos avulsos sem
-// nota continuam aparecendo apenas no Historico). "Valor total" inclui o
-// frete, igual a tela "Ver nota".
-//
-// A grade de "Notas de venda" mudou para a tela "Notas de Venda"
-// (public/admin/js/nota-venda.js), que agora usa a mesma logica abaixo.
-//
-// Importante: usa "allMovementsForNotes" (busca TODAS as movimentacoes, sem
-// o limite de paginacao do Historico abaixo) e nao o array "movements" - uma
-// loja com muitas movimentacoes facilmente passa das 150 mais recentes
-// carregadas no Historico, e uma nota mais antiga (ex.: uma compra lancada
-// antes de uma importacao grande) ficaria de fora dessas grades mesmo tendo
-// sido lancada normalmente.
-function round2(n) {
-  return Math.round(n * 100) / 100;
-}
-
-function groupMovementsByNote(type) {
-  const map = new Map();
-  allMovementsForNotes.forEach((m) => {
-    if (m.type !== type || !m.nf || m.cancelled) return;
-    if (!map.has(m.nf)) {
-      map.set(m.nf, { nf: m.nf, subtotal: 0, freight: 0, party: null, createdAt: m.createdAt });
-    }
-    const entry = map.get(m.nf);
-    entry.subtotal += m.totalPrice || 0;
-    entry.freight += m.freightShare || 0;
-    if (!entry.party) {
-      const party = type === 'purchase' ? m.supplier : m.customer;
-      entry.party = party && party.name ? party.name : null;
-    }
-    if (m.createdAt && (!entry.createdAt || m.createdAt > entry.createdAt)) entry.createdAt = m.createdAt;
-  });
-  return Array.from(map.values())
-    .map((e) => ({ ...e, subtotal: round2(e.subtotal), freight: round2(e.freight), total: round2(e.subtotal + e.freight) }))
-    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-}
-
-function renderNotesGrid(tbody, type, partyLabel) {
-  const notes = groupMovementsByNote(type);
-  if (notes.length === 0) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="5">Nenhuma nota de ${type === 'purchase' ? 'compra' : 'venda'} encontrada.</td></tr>`;
-    return;
-  }
-  const rowsHtml = notes
-    .map(
-      (n) => `
-        <tr>
-          <td>${escapeHtml(n.nf)}</td>
-          <td>${currency.format(n.total)}</td>
-          <td>${currency.format(n.freight)}</td>
-          <td>${escapeHtml(n.party || '-')}</td>
-          <td><a class="btn btn-ghost btn-sm" href="/admin/ver-nota.html?type=${encodeURIComponent(type)}&nf=${encodeURIComponent(n.nf)}">Ver nota</a></td>
-        </tr>
-      `
-    )
-    .join('');
-
-  const totalGeral = round2(notes.reduce((sum, n) => sum + n.total, 0));
-  const totalFrete = round2(notes.reduce((sum, n) => sum + n.freight, 0));
-  const totalsRowHtml = `
-    <tr class="notes-totals-row">
-      <td>Total (${notes.length} ${notes.length === 1 ? 'nota' : 'notas'})</td>
-      <td>${currency.format(totalGeral)}</td>
-      <td>${currency.format(totalFrete)}</td>
-      <td></td>
-      <td></td>
-    </tr>
-  `;
-
-  tbody.innerHTML = rowsHtml + totalsRowHtml;
-}
-
-function renderNotesGrids() {
-  renderNotesGrid(purchaseNotesTableBody, 'purchase');
-}
-
-// Busca TODAS as movimentacoes (paginando em lotes de 300, o maximo aceito
-// pela API por chamada) para alimentar as grades de notas acima. Para uma
-// loja pequena isso costuma ser 1-2 chamadas; o limite de 20 paginas (ate
-// 6000 movimentacoes) e so uma trava de seguranca contra um loop infinito.
-async function loadAllMovementsForNotes() {
-  const collected = [];
-  let before = null;
-  for (let page = 0; page < 20; page += 1) {
-    const params = new URLSearchParams({ limit: '300' });
-    if (before) params.set('before', before);
-    // eslint-disable-next-line no-await-in-loop
-    const res = await authedFetch(`/api/stock/movements?${params.toString()}`);
-    // eslint-disable-next-line no-await-in-loop
-    const data = await res.json();
-    const items = data.items || [];
-    collected.push(...items);
-    if (items.length < 300) break;
-    before = items[items.length - 1].createdAt;
-  }
-  allMovementsForNotes = collected;
-  renderNotesGrids();
-}
+// As grades "Notas de compra" e "Notas de venda" (agrupadas por NF) saíram
+// desta tela e foram para as telas dedicadas "Notas de Compra"
+// (public/admin/js/nota-compra.js) e "Notas de Venda"
+// (public/admin/js/nota-venda.js), que tem a mesma logica de agrupamento.
 
 async function loadHistory({ reset = false } = {}) {
   const params = new URLSearchParams({ limit: '150' });

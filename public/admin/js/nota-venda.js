@@ -159,8 +159,13 @@ manualProductSelect.addEventListener('change', () => {
   if (product && product.price != null) {
     manualUnitPriceInput.value = product.price;
   }
+  updateManualCodeFromSelection();
 });
-manualColorSelect.addEventListener('change', updateManualSizeOptions);
+manualColorSelect.addEventListener('change', () => {
+  updateManualSizeOptions();
+  updateManualCodeFromSelection();
+});
+manualSizeSelect.addEventListener('change', updateManualCodeFromSelection);
 
 // -------------------- Codigo de barras (atalho) --------------------
 // Procura o codigo digitado em todos os produtos/cores/tamanhos ja
@@ -206,6 +211,21 @@ function applyCodeMatch(match) {
   if (match.product.price != null) {
     manualUnitPriceInput.value = match.product.price;
   }
+}
+
+// Caminho inverso do atalho acima: quando o admin monta a linha escolhendo
+// Produto, Cor e Tamanho direto nos combos (sem digitar nada em Codigo),
+// preenche esse campo sozinho com o mesmo "codigo do item" que aparece na
+// coluna Codigo da tela Produtos Cadastrados para essa cor/tamanho. Se a
+// combinacao ainda nao tiver um codigo cadastrado, o campo fica em branco -
+// nunca mostra o codigo de outro tamanho/cor por engano.
+function updateManualCodeFromSelection() {
+  const product = catalogProducts.find((p) => p.code === manualProductSelect.value);
+  const variant = product && product.variants.find((v) => v.id === manualColorSelect.value);
+  const size = manualSizeSelect.value;
+  const itemCode = variant && size ? (variant.itemCodes && variant.itemCodes[size]) || '' : '';
+  manualCodeInput.value = itemCode;
+  manualCodeInput.classList.remove('input-error');
 }
 
 // "showError" so marca o campo em vermelho quando o admin realmente terminou

@@ -41,6 +41,8 @@ const notaGroupsEl = document.getElementById('nota-groups');
 const finalizeMessage = document.getElementById('finalize-message');
 const finalizeAllBtn = document.getElementById('finalize-all-btn');
 
+const purchaseNotesTableBody = document.getElementById('purchase-notes-table-body');
+
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const SEM_NF_KEY = '__sem_nf__';
 
@@ -50,6 +52,7 @@ let newProducts = [];
 let lines = [];
 let batchSeq = 0;
 let manualSeq = 0;
+let allMovementsForNotes = [];
 const freightByNf = new Map(); // groupKey -> valor do frete desta nota (persiste entre re-renders)
 
 function cssEscape(value) {
@@ -99,7 +102,7 @@ onAuthStateChanged(authClient, async (user) => {
 
   currentUser = user;
   adminUsernameEl.textContent = user.email;
-  await Promise.all([loadCatalog(), loadCategories()]);
+  await Promise.all([loadCatalog(), loadCategories(), loadAllMovementsForNotes()]);
   renderGroups();
 });
 
@@ -587,6 +590,90 @@ notaGroupsEl.addEventListener('click', (e) => {
   }
 });
 
+// -------------------- Notas de compra (agrupadas por NF) --------------------
+// Mesma grade que existia na tela "Compras, vendas e estoque" (agora
+// "Estoque e Movimentações"), movida para ca. Agrupa por numero de NF, uma
+// linha por nota em vez de uma linha por item - so movimentacoes com NF
+// preenchida entram aqui (lancamentos avulsos sem nota continuam aparecendo
+// apenas no Historico, na tela "Estoque e Movimentações").
+function groupMovementsByNote() {
+  const map = new Map();
+  allMovementsForNotes.forEach((m) => {
+    if (m.type !== 'purchase' || !m.nf || m.cancelled) return;
+    if (!map.has(m.nf)) {
+      map.set(m.nf, { nf: m.nf, subtotal: 0, freight: 0, party: null, createdAt: m.createdAt });
+    }
+    const entry = map.get(m.nf);
+    entry.subtotal += m.totalPrice || 0;
+    entry.freight += m.freightShare || 0;
+    if (!entry.party) {
+      entry.party = m.supplier && m.supplier.name ? m.supplier.name : null;
+    }
+    if (m.createdAt && (!entry.createdAt || m.createdAt > entry.createdAt)) entry.createdAt = m.createdAt;
+  });
+  return Array.from(map.values())
+    .map((e) => ({ ...e, subtotal: round2(e.subtotal), freight: round2(e.freight), total: round2(e.subtotal + e.freight) }))
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+}
+
+function renderPurchaseNotesGrid() {
+  const notes = groupMovementsByNote();
+  if (notes.length === 0) {
+    purchaseNotesTableBody.innerHTML = '<tr class="empty-row"><td colspan="5">Nenhuma nota de compra encontrada.</td></tr>';
+    return;
+  }
+  const rowsHtml = notes
+    .map(
+      (n) => `
+        <tr>
+          <td>${escapeHtml(n.nf)}</td>
+          <td>${currency.format(n.total)}</td>
+          <td>${currency.format(n.freight)}</td>
+          <td>${escapeHtml(n.party || '-')}</td>
+          <td><a class="btn btn-ghost btn-sm" href="/admin/ver-nota.html?type=purchase&nf=${encodeURIComponent(n.nf)}">Ver nota</a></td>
+        </tr>
+      `
+    )
+    .join('');
+
+  const totalGeral = round2(notes.reduce((sum, n) => sum + n.total, 0));
+  const totalFrete = round2(notes.reduce((sum, n) => sum + n.freight, 0));
+  const totalsRowHtml = `
+    <tr class="notes-totals-row">
+      <td>Total (${notes.length} ${notes.length === 1 ? 'nota' : 'notas'})</td>
+      <td>${currency.format(totalGeral)}</td>
+      <td>${currency.format(totalFrete)}</td>
+      <td></td>
+      <td></td>
+    </tr>
+  `;
+
+  purchaseNotesTableBody.innerHTML = rowsHtml + totalsRowHtml;
+}
+
+// Busca TODAS as movimentacoes (paginando em lotes de 300, o maximo aceito
+// pela API por chamada) para alimentar a grade de notas acima. Para uma loja
+// pequena isso costuma ser 1-2 chamadas; o limite de 20 paginas (ate 6000
+// movimentacoes) e so uma trava de seguranca contra um loop infinito.
+async function loadAllMovementsForNotes() {
+  const collected = [];
+  let before = null;
+  for (let page = 0; page < 20; page += 1) {
+    const params = new URLSearchParams({ limit: '300' });
+    if (before) params.set('before', before);
+    // eslint-disable-next-line no-await-in-loop
+    const res = await authedFetch(`/api/stock/movements?${params.toString()}`);
+    // eslint-disable-next-line no-await-in-loop
+    const data = await res.json();
+    const items = data.items || [];
+    collected.push(...items);
+    if (items.length < 300) break;
+    before = items[items.length - 1].createdAt;
+  }
+  allMovementsForNotes = collected;
+  renderPurchaseNotesGrid();
+}
+
 // -------------------- Finalizar uma nota (um grupo de NF) --------------------
 function showFinalizeMessage(text, type) {
   finalizeMessage.textContent = text;
@@ -717,7 +804,7 @@ async function finalizeGroup(key, buttonEl) {
         `${group.label}: ${data.error || 'parte da nota foi lancada. Corrija a linha indicada e clique em "Finalizar esta nota" novamente para lancar o restante.'}`,
         'error'
       );
-      await loadCatalog();
+      await Promise.all([loadCatalog(), loadAllMovementsForNotes()]);
       return false;
     }
 
@@ -735,7 +822,7 @@ async function finalizeGroup(key, buttonEl) {
       `${group.label} lancada com sucesso: ${data.summary.productsCreated} produto(s) novo(s) e ${data.summary.movementsCreated} compra(s) registrada(s).`,
       'success'
     );
-    await loadCatalog();
+    await Promise.all([loadCatalog(), loadAllMovementsForNotes()]);
     return true;
   } catch (err) {
     showFinalizeMessage(`${group.label}: erro de conexao com o servidor.`, 'error');

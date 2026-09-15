@@ -90,6 +90,7 @@ function parseVariants(raw) {
     throw new Error('Cadastre ao menos uma variacao de cor.');
   }
 
+  const seenIds = new Set();
   const seenColors = new Set();
   const seenItemCodes = new Set();
   const variants = [];
@@ -102,6 +103,13 @@ function parseVariants(raw) {
       : [];
 
     if (!id) throw new Error('Variacao invalida (identificador ausente).');
+    // Cada cor precisa de um identificador PROPRIO - e o que casa a variacao
+    // enviada com a imagem enviada (campo "variantImage_<id>") e com a
+    // variacao ja existente no banco. Duas cores com o mesmo id fariam a
+    // imagem de uma "vazar" para a outra ao salvar (o servidor nao teria como
+    // saber qual imagem pertence a qual cor).
+    if (seenIds.has(id)) throw new Error('Duas cores enviadas com o mesmo identificador interno - recarregue a pagina e tente novamente.');
+    seenIds.add(id);
     if (!color) throw new Error('Informe a cor de todas as variacoes cadastradas.');
     if (sizes.length === 0) throw new Error(`Informe ao menos um tamanho para a cor "${color}".`);
 

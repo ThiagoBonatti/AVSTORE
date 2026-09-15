@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AVSTORE Admin - Nota de Compra</title>
+<title>AVSTORE Admin - Notas de Compra</title>
 <link rel="icon" type="image/png" href="/img/favicon-32.png" />
 <link rel="apple-touch-icon" href="/img/favicon-180.png" />
 <link rel="stylesheet" href="/admin/css/admin.css" />
@@ -14,7 +14,7 @@
     <nav class="admin-nav">
       <a href="/admin/dashboard.html" class="admin-nav-link">Produtos</a>
       <a href="/admin/estoque.html" class="admin-nav-link">Estoque e Movimentações</a>
-      <a href="/admin/nota-compra.html" class="admin-nav-link active">Nota de compra</a>
+      <a href="/admin/nota-compra.html" class="admin-nav-link active">Notas de Compra</a>
       <a href="/admin/nota-venda.html" class="admin-nav-link">Notas de Venda</a>
       <a href="/admin/relatorios.html" class="admin-nav-link">Relatorios</a>
     </nav>
@@ -112,6 +112,26 @@
       </p>
       <div id="nota-groups" class="nota-groups"></div>
       <p id="finalize-message" class="form-message" hidden></p>
+    </section>
+
+    <section class="admin-card">
+      <div class="card-header-row">
+        <h2>Notas de compra</h2>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Nro nota</th>
+              <th>Valor total</th>
+              <th>Valor do frete</th>
+              <th>Fornecedor</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="purchase-notes-table-body"></tbody>
+        </table>
+      </div>
     </section>
   </main>
 
