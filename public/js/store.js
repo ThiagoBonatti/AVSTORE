@@ -34,12 +34,17 @@
   }
 
   // -------------------- Cores conhecidas -> amostra visual --------------------
-  // Mapeia nomes de cor comuns (em portugues) para um tom aproximado, usado
-  // para desenhar a bolinha de cor clicavel em cada produto. Cores nao
-  // reconhecidas caem no fallback (chip com o nome escrito).
+  // Mapeia nomes de cor (em portugues) para um tom aproximado, usado para
+  // desenhar a bolinha de cor clicavel em cada produto. Inclui tanto cores
+  // simples quanto os nomes compostos ja cadastrados no catalogo (ex.:
+  // "Rosa Claro", "Marron Cafe", "Vinho Bordo") - um nome composto sem
+  // correspondencia exata aqui ainda cai no fallback de colorToHex logo
+  // abaixo (clareia/escurece a cor base pela primeira palavra), entao uma
+  // cor nova cadastrada no futuro raramente fica sem nenhuma cor no chip.
   const COLOR_HEX = {
     branco: '#ffffff',
     'off white': '#f5f5f0',
+    'branco perola': '#efe9df',
     preto: '#111111',
     cinza: '#9ca3af',
     chumbo: '#4b5563',
@@ -47,20 +52,33 @@
     'azul marinho': '#1e3a5f',
     marinho: '#1e3a5f',
     'azul claro': '#60a5fa',
+    'azul escuro': '#1d4ed8',
     vermelho: '#dc2626',
     verde: '#16a34a',
     'verde militar': '#4d5d3a',
     amarelo: '#f1c40f',
+    'amarelo manteiga': '#f2e2a1',
     laranja: '#f97316',
     roxo: '#8b5cf6',
     lilas: '#c4b5fd',
     rosa: '#ec4899',
+    'rosa claro': '#ffb6c1',
+    'rosa escuro': '#d6336c',
     marrom: '#78350f',
+    marron: '#78350f',
+    'marrom claro': '#a9744f',
+    'marron claro': '#a9744f',
+    'marrom cafe': '#4b3621',
+    'marron cafe': '#4b3621',
+    cacau: '#5c4033',
+    cafe: '#5c4033',
+    'cafe claro': '#b08968',
     bege: '#e8dcc8',
     caqui: '#8a7f5e',
     dourado: '#caa43d',
     prateado: '#c0c0c0',
     vinho: '#7f1d3d',
+    'vinho bordo': '#6d1a36',
     creme: '#f5f0e1',
     nude: '#e3c9a8',
   };
@@ -73,8 +91,57 @@
       .trim();
   }
 
+  function hexToRgb(hex) {
+    const clean = hex.replace('#', '');
+    return {
+      r: parseInt(clean.substring(0, 2), 16),
+      g: parseInt(clean.substring(2, 4), 16),
+      b: parseInt(clean.substring(4, 6), 16),
+    };
+  }
+
+  function rgbToHex(r, g, b) {
+    const clamp = (n) => Math.max(0, Math.min(255, Math.round(n)));
+    const toHex = (n) => clamp(n).toString(16).padStart(2, '0');
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  }
+
+  // Clareia/escurece um hex misturando com branco/preto na proporcao
+  // "amount" (0 a 1) - usado pelo fallback de colorToHex para aproximar
+  // variacoes tipo "X Claro"/"X Escuro" que nao tem uma entrada propria.
+  function lightenHex(hex, amount) {
+    const { r, g, b } = hexToRgb(hex);
+    return rgbToHex(r + (255 - r) * amount, g + (255 - g) * amount, b + (255 - b) * amount);
+  }
+  function darkenHex(hex, amount) {
+    const { r, g, b } = hexToRgb(hex);
+    return rgbToHex(r * (1 - amount), g * (1 - amount), b * (1 - amount));
+  }
+
+  // Resolve o hex mais proximo para um nome de cor: primeiro tenta o nome
+  // completo no mapa acima; se nao achar, tenta a primeira palavra como cor
+  // base (ex.: "Verde" em "Verde Agua") e, se o nome tiver "claro"/"escuro",
+  // clareia ou escurece essa base - assim uma cor composta nova ainda ganha
+  // um tom bem proximo em vez de cair sempre no chip so com texto.
   function colorToHex(name) {
-    return COLOR_HEX[normalizeColorKey(name)] || null;
+    const key = normalizeColorKey(name);
+    if (COLOR_HEX[key]) return COLOR_HEX[key];
+
+    const baseWord = key.split(' ')[0];
+    const baseHex = COLOR_HEX[baseWord];
+    if (!baseHex) return null;
+    if (/\bclaro\b|\bclara\b/.test(key)) return lightenHex(baseHex, 0.35);
+    if (/\bescuro\b|\bescura\b/.test(key)) return darkenHex(baseHex, 0.3);
+    return baseHex;
+  }
+
+  // Um chip muito claro (branco, off white, pearl...) some visualmente
+  // contra o fundo branco do card, sobrando so uma borda quase invisivel -
+  // por isso ganha uma borda mais escura para continuar bem visivel.
+  function isLightColor(hex) {
+    const { r, g, b } = hexToRgb(hex);
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return luminance > 0.85;
   }
 
   // -------------------- Carregamento de filtros --------------------
@@ -158,6 +225,7 @@
       btn.setAttribute('aria-label', `Cor ${v.color}`);
       if (hex) {
         btn.style.background = hex;
+        if (isLightColor(hex)) btn.classList.add('color-swatch-light');
       } else {
         btn.textContent = v.color.slice(0, 2).toUpperCase();
       }

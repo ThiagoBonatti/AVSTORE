@@ -198,6 +198,15 @@ select:focus, input:focus {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 3px var(--color-primary);
 }
+/* Uma cor muito clara (branco, off white, perola...) preenchida no fundo
+   branco do card fica quase invisivel com a borda padrao (bem sutil) -
+   ganha uma borda mais escura so para continuar bem visivel como bolinha. */
+.color-swatch.color-swatch-light {
+  border-color: var(--color-text-muted);
+}
+.color-swatch.color-swatch-light.selected {
+  border-color: var(--color-primary);
+}
 .color-swatch-text {
   border-radius: 999px;
   width: auto;
