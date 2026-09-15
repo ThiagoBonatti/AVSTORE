@@ -275,7 +275,7 @@ function renderProductTable() {
     .map(
       (p) => `
       <tr>
-        <td>${escapeHtml(p.code)} - ${escapeHtml(p.description)}</td>
+        <td class="description-cell">${escapeHtml(p.description)}</td>
         <td>${p.itemsCount}</td>
         <td>${currency.format(p.amount)}</td>
         <td>${currency.format(p.cost)}</td>

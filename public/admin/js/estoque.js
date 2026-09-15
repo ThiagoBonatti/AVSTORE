@@ -200,7 +200,7 @@ function renderHistory() {
       <td>${typeBadge(m.type)}</td>
       <td>${escapeHtml(m.nf || '-')}</td>
       <td>${escapeHtml(findItemCode(m) || '-')}</td>
-      <td>${escapeHtml(m.code)} - ${escapeHtml(m.description)}</td>
+      <td class="description-cell">${escapeHtml(m.description)}</td>
       <td>${escapeHtml(m.color)} / ${escapeHtml(m.size)}</td>
       <td>${m.quantity}</td>
       <td>${currency.format(m.unitPrice)}</td>

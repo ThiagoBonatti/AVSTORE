@@ -718,6 +718,138 @@ router.post('/notes/cancel', async (req, res) => {
   }
 });
 
+// POST /api/stock/notes/purchase-freight - corrige o valor do frete de uma
+// nota de compra JA FINALIZADA, recalculando o rateio proporcional entre os
+// itens ainda ativos da nota (mesma formula usada ao lancar a nota em
+// import/commit) e ajustando o custo medio ponderado dos produtos afetados.
+// Diferente do PATCH acima (que so corrige o numero da NF), aqui o valor
+// realmente lancado de cada item muda: o custo unitario ja gravado
+// (unitPrice) inclui o frete rateado (unitPrice = custo + frete/quantidade),
+// entao trocar o frete exige recalcular esse custo e, junto com ele, o custo
+// medio da variante no catalogo - nao basta atualizar so a movimentacao.
+router.post('/notes/purchase-freight', async (req, res) => {
+  const nf = String((req.body && req.body.nf) || '').trim();
+  const freight = Number(req.body && req.body.freight);
+
+  if (!nf) return res.status(400).json({ error: 'Informe o numero da nota.' });
+  if (!Number.isFinite(freight) || freight < 0) {
+    return res.status(400).json({ error: 'Informe um valor de frete valido.' });
+  }
+
+  try {
+    const snapshot = await movementsRef.where('type', '==', 'purchase').where('nf', '==', nf).get();
+    const candidateRefs = snapshot.docs.filter((d) => !d.data().cancelled).map((d) => d.ref);
+
+    if (candidateRefs.length === 0) {
+      return res.status(404).json({ error: 'Nenhuma compra ativa encontrada para esta nota.' });
+    }
+
+    const result = await db.runTransaction(async (transaction) => {
+      // Regra do Firestore: todas as leituras vem antes de qualquer escrita -
+      // le as movimentacoes e so depois os produtos.
+      const movements = [];
+      for (const ref of candidateRefs) {
+        const snap = await transaction.get(ref);
+        if (snap.exists && !snap.data().cancelled) movements.push({ ref, data: snap.data() });
+      }
+      if (movements.length === 0) {
+        throw new HttpError(400, 'Esta nota nao tem mais itens ativos.');
+      }
+
+      // O custo original (sem frete) de cada item e reconstruido a partir do
+      // que ja foi lancado: unitPrice = custo + freteAtual/quantidade.
+      const items = movements.map(({ ref, data }) => {
+        const quantity = Number(data.quantity) || 0;
+        const oldFreightShare = Number(data.freightShare) || 0;
+        const oldUnitPrice = Number(data.unitPrice) || 0;
+        const unitCost = quantity > 0 ? oldUnitPrice - oldFreightShare / quantity : oldUnitPrice;
+        return { ref, data, quantity, unitCost, oldUnitPrice };
+      });
+
+      // Mesmo rateio proporcional (por quantidade x custo) usado ao lancar a
+      // nota - o ultimo item absorve a diferenca de arredondamento.
+      const weights = items.map((it) => it.quantity * it.unitCost);
+      const totalWeight = weights.reduce((a, b) => a + b, 0);
+      const newShares = items.map((it, i) => (freight > 0 && totalWeight > 0 ? round2(freight * (weights[i] / totalWeight)) : 0));
+      if (freight > 0 && totalWeight > 0 && newShares.length) {
+        const allocated = round2(newShares.reduce((a, b) => a + b, 0));
+        newShares[newShares.length - 1] = round2(newShares[newShares.length - 1] + round2(freight - allocated));
+      }
+
+      const productCodes = [...new Set(items.map((it) => it.data.code))];
+      const variantsByProduct = new Map();
+      for (const code of productCodes) {
+        const snap = await transaction.get(productsRef.doc(code));
+        if (snap.exists) variantsByProduct.set(code, (snap.data().variants || []).slice());
+      }
+
+      items.forEach((it, i) => {
+        const variants = variantsByProduct.get(it.data.code);
+        if (!variants) {
+          throw new HttpError(
+            400,
+            `O produto "${it.data.code}" desta nota nao existe mais. Ajuste manualmente pelo Historico de movimentacoes.`
+          );
+        }
+        const idx = variants.findIndex((v) => v.id === it.data.variantId);
+        if (idx < 0) {
+          throw new HttpError(
+            400,
+            `Uma cor desta nota nao existe mais no produto "${it.data.code}". Ajuste manualmente pelo Historico de movimentacoes.`
+          );
+        }
+
+        const newUnitPrice = round2(it.unitCost + (it.quantity ? newShares[i] / it.quantity : 0));
+        const newTotalPrice = round2(newUnitPrice * it.quantity);
+
+        const variant = variants[idx];
+        const currentQty = Number((variant.stock && variant.stock[it.data.size]) || 0);
+        const currentAvgCost = Number((variant.avgCost && variant.avgCost[it.data.size]) || 0);
+
+        // Troca a contribuicao desta compra no custo medio ponderado (o
+        // preco antigo pela novo, mesma quantidade) - uma aproximacao
+        // razoavel quando ja houve outras compras/vendas depois desta,
+        // mesmo principio ja usado no cancelamento de nota acima.
+        let newAvgCost = currentAvgCost;
+        if (currentQty > 0) {
+          const totalCostValue = currentAvgCost * currentQty;
+          const adjustedCostValue = totalCostValue - it.oldUnitPrice * it.quantity + newUnitPrice * it.quantity;
+          newAvgCost = Math.max(0, adjustedCostValue / currentQty);
+        }
+
+        variants[idx] = {
+          ...variant,
+          avgCost: { ...(variant.avgCost || {}), [it.data.size]: newAvgCost },
+        };
+
+        it.newUnitPrice = newUnitPrice;
+        it.newTotalPrice = newTotalPrice;
+        it.newFreightShare = newShares[i];
+      });
+
+      for (const code of productCodes) {
+        const variants = variantsByProduct.get(code);
+        if (variants) transaction.update(productsRef.doc(code), { variants });
+      }
+      for (const it of items) {
+        transaction.update(it.ref, {
+          freightShare: it.newFreightShare,
+          unitPrice: it.newUnitPrice,
+          totalPrice: it.newTotalPrice,
+        });
+      }
+
+      return { updatedCount: items.length, freight: round2(freight) };
+    });
+
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao atualizar o frete da nota.' });
+  }
+});
+
 // PATCH /api/stock/movements/:id - corrige o numero da nota (nf) de uma
 // movimentacao ja lancada. Uso principal: vendas/compras avulsas lancadas
 // sem numero de nota (antes de esse campo virar obrigatorio na tela de Nota

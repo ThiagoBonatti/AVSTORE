@@ -146,7 +146,16 @@ function renderNote(type, nf, items) {
   fieldDescontoWrap.hidden = !hasDiscount;
   if (hasDiscount) fieldDescontoEl.textContent = currency.format(totalDiscount);
 
-  fieldTotalEl.textContent = currency.format(round2(totalValue + totalFreight - totalDiscount));
+  // Em nota de compra o frete ja vem embutido no valor unitario lancado
+  // (custo + frete/quantidade - ver server/routes/stock.js), entao
+  // totalValue (soma de totalPrice) ja inclui o frete: somar totalFreight de
+  // novo aqui contaria o frete em dobro. Em nota de venda o frete NAO e
+  // embutido no valor unitario (fica so como informacao), entao ali o total
+  // precisa somar o frete normalmente.
+  const grandTotal = type === 'purchase'
+    ? round2(totalValue - totalDiscount)
+    : round2(totalValue + totalFreight - totalDiscount);
+  fieldTotalEl.textContent = currency.format(grandTotal);
 
   // Vendedor/comissao so existem em notas de venda (campos novos no cabecalho
   // da tela "Nota de venda") - uma nota de compra nunca tem esses campos, e

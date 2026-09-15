@@ -54,7 +54,34 @@
     </section>
 
     <section class="admin-card">
-      <h2>Adicionar item manualmente</h2>
+      <h2>Dados da nota</h2>
+      <p class="variants-hint">
+        Preencha os dados da nota de compra e adicione os itens abaixo - cada item recebe estes mesmos
+        dados automaticamente, sem precisar repetir. Itens importados de uma planilha continuam agrupados
+        pela propria NF de cada linha, normalmente.
+      </p>
+      <form id="nota-header-form" class="product-form">
+        <label>
+          NF <span class="field-hint">(opcional)</span>
+          <input type="text" id="header-nf" placeholder="Numero da nota" />
+        </label>
+        <label>
+          Data da NF <span class="field-hint">(opcional)</span>
+          <input type="date" id="header-data-nf" />
+        </label>
+        <label>
+          Fornecedor <span class="field-hint">(opcional)</span>
+          <input type="text" id="header-fornecedor" placeholder="Nome do fornecedor" />
+        </label>
+        <label>
+          Valor do frete (R$) <span class="field-hint">(opcional - rateado proporcionalmente entre os itens desta NF)</span>
+          <input type="number" id="header-frete" min="0" step="0.01" value="0" />
+        </label>
+      </form>
+    </section>
+
+    <section class="admin-card">
+      <h2>Adicionar item</h2>
       <form id="manual-item-form" class="product-form">
         <label class="full">
           Produto (ja cadastrado)
@@ -81,18 +108,6 @@
         <label>
           Custo unitario (R$)
           <input type="number" id="manual-unit-cost" min="0" step="0.01" />
-        </label>
-        <label>
-          Fornecedor <span class="field-hint">(opcional)</span>
-          <input type="text" id="manual-fornecedor" placeholder="Nome do fornecedor" />
-        </label>
-        <label>
-          NF <span class="field-hint">(opcional)</span>
-          <input type="text" id="manual-nf" placeholder="Numero da nota" />
-        </label>
-        <label>
-          Data da NF <span class="field-hint">(opcional)</span>
-          <input type="date" id="manual-data-nf" />
         </label>
         <div class="form-actions">
           <button type="button" id="manual-add-btn" class="btn btn-ghost">+ Adicionar item a nota</button>

@@ -25,15 +25,17 @@ const newProductsSection = document.getElementById('new-products-section');
 const newProductsList = document.getElementById('new-products-list');
 const categoryList = document.getElementById('category-list');
 
+const headerNfInput = document.getElementById('header-nf');
+const headerDataNfInput = document.getElementById('header-data-nf');
+const headerFornecedorInput = document.getElementById('header-fornecedor');
+const headerFreteInput = document.getElementById('header-frete');
+
 const manualForm = document.getElementById('manual-item-form');
 const manualProductSelect = document.getElementById('manual-product');
 const manualColorSelect = document.getElementById('manual-color');
 const manualSizeSelect = document.getElementById('manual-size');
 const manualQuantityInput = document.getElementById('manual-quantity');
 const manualUnitCostInput = document.getElementById('manual-unit-cost');
-const manualFornecedorInput = document.getElementById('manual-fornecedor');
-const manualNfInput = document.getElementById('manual-nf');
-const manualDataNfInput = document.getElementById('manual-data-nf');
 const manualAddBtn = document.getElementById('manual-add-btn');
 
 const linesCountEl = document.getElementById('lines-count');
@@ -198,9 +200,9 @@ manualAddBtn.addEventListener('click', () => {
     color: variant.color,
     size,
     itemCode: (variant.itemCodes && variant.itemCodes[size]) || null,
-    fornecedor: manualFornecedorInput.value.trim() || null,
-    nf: manualNfInput.value.trim() || null,
-    dataNF: manualDataNfInput.value ? new Date(manualDataNfInput.value).toISOString() : null,
+    fornecedor: headerFornecedorInput.value.trim() || null,
+    nf: headerNfInput.value.trim() || null,
+    dataNF: headerDataNfInput.value ? new Date(headerDataNfInput.value).toISOString() : null,
     quantity,
     unitCost,
   });
@@ -208,6 +210,34 @@ manualAddBtn.addEventListener('click', () => {
   manualQuantityInput.value = '1';
   manualUnitCostInput.value = '';
   renderGroups();
+});
+
+// -------------------- Cabecalho da nota (NF/Data/Fornecedor/Frete) --------------------
+// Preenchido uma unica vez, antes de adicionar os itens - cada item novo
+// (adicionado manualmente) usa esses valores automaticamente, sem repetir.
+// Itens vindos de uma planilha continuam com a NF/fornecedor/data da propria
+// planilha, sem depender deste cabecalho.
+function currentHeaderNfKey() {
+  const v = headerNfInput.value.trim();
+  return v || SEM_NF_KEY;
+}
+
+// Digitar o frete no cabecalho ja aplica o valor ao grupo desta NF (se ele
+// existir na lista de itens abaixo), do mesmo jeito que editar o campo de
+// frete direto no card do grupo.
+headerFreteInput.addEventListener('input', () => {
+  const key = currentHeaderNfKey();
+  const v = Number(headerFreteInput.value);
+  freightByNf.set(key, Number.isFinite(v) && v >= 0 ? v : 0);
+  updateGroupDisplay(key);
+});
+
+// Ao trocar a NF do cabecalho, mostra o frete ja guardado para essa NF (caso
+// ja exista um grupo com itens dela), em vez de deixar o campo com um valor
+// de outra nota.
+headerNfInput.addEventListener('input', () => {
+  const key = currentHeaderNfKey();
+  headerFreteInput.value = String(freightByNf.get(key) || 0);
 });
 
 // -------------------- Importar planilha --------------------
@@ -604,6 +634,11 @@ function groupMovementsByNote() {
       map.set(m.nf, { nf: m.nf, subtotal: 0, freight: 0, party: null, createdAt: m.createdAt });
     }
     const entry = map.get(m.nf);
+    // m.totalPrice ja inclui o frete rateado (o custo unitario lancado e
+    // custo + frete/quantidade - ver server/routes/stock.js) - por isso o
+    // total da nota e so a soma do totalPrice, sem somar o frete de novo.
+    // "freight" abaixo e guardado a parte so para exibir na coluna "Valor do
+    // frete", nao para compor o total.
     entry.subtotal += m.totalPrice || 0;
     entry.freight += m.freightShare || 0;
     if (!entry.party) {
@@ -612,9 +647,13 @@ function groupMovementsByNote() {
     if (m.createdAt && (!entry.createdAt || m.createdAt > entry.createdAt)) entry.createdAt = m.createdAt;
   });
   return Array.from(map.values())
-    .map((e) => ({ ...e, subtotal: round2(e.subtotal), freight: round2(e.freight), total: round2(e.subtotal + e.freight) }))
+    .map((e) => ({ ...e, subtotal: round2(e.subtotal), freight: round2(e.freight), total: round2(e.subtotal) }))
     .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 }
+
+// NF da nota cujo frete esta sendo editado no momento (null = nenhuma). So
+// uma nota por vez pode estar em edicao.
+let editingFreightNf = null;
 
 function renderPurchaseNotesGrid() {
   const notes = groupMovementsByNote();
@@ -623,17 +662,26 @@ function renderPurchaseNotesGrid() {
     return;
   }
   const rowsHtml = notes
-    .map(
-      (n) => `
-        <tr>
+    .map((n) => {
+      const isEditing = editingFreightNf === n.nf;
+      const freightCell = isEditing
+        ? `<input type="number" class="lines-table-input" min="0" step="0.01" value="${n.freight}" data-role="edit-freight-input" />`
+        : currency.format(n.freight);
+      const actionsCell = isEditing
+        ? `<button type="button" class="btn btn-primary btn-sm" data-action="save-freight" data-nf="${escapeHtml(n.nf)}">Salvar</button>
+           <button type="button" class="btn btn-ghost btn-sm" data-action="cancel-edit-freight">Cancelar</button>`
+        : `<a class="btn btn-ghost btn-sm" href="/admin/ver-nota.html?type=purchase&nf=${encodeURIComponent(n.nf)}">Ver nota</a>
+           <button type="button" class="btn btn-ghost btn-sm" data-action="edit-freight" data-nf="${escapeHtml(n.nf)}">Editar frete</button>`;
+      return `
+        <tr data-nf-row="${escapeHtml(n.nf)}">
           <td>${escapeHtml(n.nf)}</td>
           <td>${currency.format(n.total)}</td>
-          <td>${currency.format(n.freight)}</td>
+          <td>${freightCell}</td>
           <td>${escapeHtml(n.party || '-')}</td>
-          <td><a class="btn btn-ghost btn-sm" href="/admin/ver-nota.html?type=purchase&nf=${encodeURIComponent(n.nf)}">Ver nota</a></td>
+          <td class="row-actions">${actionsCell}</td>
         </tr>
-      `
-    )
+      `;
+    })
     .join('');
 
   const totalGeral = round2(notes.reduce((sum, n) => sum + n.total, 0));
@@ -650,6 +698,60 @@ function renderPurchaseNotesGrid() {
 
   purchaseNotesTableBody.innerHTML = rowsHtml + totalsRowHtml;
 }
+
+// Edita o frete de uma nota de compra JA FINALIZADA: o servidor recalcula o
+// rateio proporcional entre os itens da nota (mesma formula usada ao lancar)
+// e ajusta o custo medio ponderado dos produtos afetados. Diferente dos
+// itens "Itens desta nota" acima (que ainda nao foram lancados), aqui a nota
+// ja existe no Firestore - por isso um botao "Editar frete" separado, na
+// grade de baixo.
+purchaseNotesTableBody.addEventListener('click', async (e) => {
+  const editBtn = e.target.closest('[data-action="edit-freight"]');
+  if (editBtn) {
+    editingFreightNf = editBtn.dataset.nf;
+    renderPurchaseNotesGrid();
+    return;
+  }
+
+  const cancelBtn = e.target.closest('[data-action="cancel-edit-freight"]');
+  if (cancelBtn) {
+    editingFreightNf = null;
+    renderPurchaseNotesGrid();
+    return;
+  }
+
+  const saveBtn = e.target.closest('[data-action="save-freight"]');
+  if (saveBtn) {
+    const nf = saveBtn.dataset.nf;
+    const row = saveBtn.closest('tr[data-nf-row]');
+    const input = row && row.querySelector('[data-role="edit-freight-input"]');
+    const newFreight = input ? Number(input.value) : NaN;
+    if (!Number.isFinite(newFreight) || newFreight < 0) {
+      alert('Informe um valor de frete valido.');
+      return;
+    }
+
+    saveBtn.disabled = true;
+    try {
+      const res = await authedFetch('/api/stock/notes/purchase-freight', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nf, freight: newFreight }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || 'Erro ao atualizar o frete da nota.');
+        saveBtn.disabled = false;
+        return;
+      }
+      editingFreightNf = null;
+      await Promise.all([loadCatalog(), loadAllMovementsForNotes()]);
+    } catch (err) {
+      alert('Erro de conexao com o servidor.');
+      saveBtn.disabled = false;
+    }
+  }
+});
 
 // Busca TODAS as movimentacoes (paginando em lotes de 300, o maximo aceito
 // pela API por chamada) para alimentar a grade de notas acima. Para uma loja
@@ -816,6 +918,15 @@ async function finalizeGroup(key, buttonEl) {
     const postedUids = new Set(group.items.map((l) => l.uid));
     lines = lines.filter((l) => !postedUids.has(l.uid));
     freightByNf.delete(key);
+    // Se o cabecalho ainda estava com os dados desta mesma nota, limpa para o
+    // proximo lancamento - sem mexer no cabecalho se o admin ja tiver trocado
+    // a NF para comecar a montar outra nota antes de finalizar esta.
+    if (currentHeaderNfKey() === key) {
+      headerNfInput.value = '';
+      headerDataNfInput.value = '';
+      headerFornecedorInput.value = '';
+      headerFreteInput.value = '0';
+    }
     renderNewProducts();
     renderGroups();
     showFinalizeMessage(

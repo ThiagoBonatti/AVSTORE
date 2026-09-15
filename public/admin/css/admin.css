@@ -133,7 +133,15 @@ a { color: inherit; }
 .admin-nav-link.active { background: var(--color-primary); color: #fff; }
 
 .admin-main {
-  max-width: 1100px;
+  /* Antes fixo em 1100px: em monitores largos isso deixava uma faixa enorme
+     de espaco vazio dos dois lados e forcava tabelas com varias colunas (ex.:
+     Produtos cadastrados) a cortar/rolar por falta de espaco, mesmo sobrando
+     tela de sobra. Agora acompanha o monitor (ate 96% da largura da janela),
+     com um teto so para nao ficar exagerado em telas ultra-largas. Em telas
+     estreitas (celular) o efeito e o mesmo de antes, ja que a largura
+     disponivel e sempre menor que o teto.
+  */
+  max-width: min(1700px, 96vw);
   margin: 0 auto;
   padding: 24px;
   display: flex;
