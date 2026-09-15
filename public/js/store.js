@@ -180,10 +180,21 @@
     if (selected && sizes.includes(selected)) select.value = selected;
   }
 
+  // O "codigo" que o cliente ve (e que vai na mensagem do WhatsApp) e o
+  // codigo do item cadastrado para aquela cor/tamanho especifica (o mesmo
+  // que aparece em Produtos Cadastrados e no atalho de Nota de Venda no
+  // admin) - nao o codigo generico do produto. Produtos antigos ou
+  // combinacoes sem codigo de item cadastrado caem no codigo do produto,
+  // para o campo nunca ficar em branco.
+  function resolveItemCode(product, variant, size) {
+    const itemCode = variant && variant.itemCodes && size ? variant.itemCodes[size] : null;
+    return (itemCode && String(itemCode).trim()) || product.code;
+  }
+
   function buildWhatsAppUrl(product, variant, size) {
     const lines = [
       'Ola! Tenho interesse neste produto da AVSTORE:',
-      `${product.description} (Codigo: ${product.code})`,
+      `${product.description} (Codigo: ${resolveItemCode(product, variant, size)})`,
       `Cor: ${variant.color}`,
       `Tamanho: ${size}`,
       `Valor: ${formatBRL(product.price)}`,
@@ -299,7 +310,7 @@
         <h2>${escapeHtml(product.description)}</h2>
         <span class="modal-price">${formatBRL(product.price)}</span>
         <div class="modal-meta">
-          <span>Codigo: ${escapeHtml(product.code)}</span>
+          <span>Codigo: <span data-field="codigo"></span></span>
           <span>Categoria: ${escapeHtml(product.category)}</span>
         </div>
         <div class="color-swatches" data-field="swatches"></div>
@@ -314,6 +325,17 @@
     const imageEl = modalContent.querySelector('[data-field="image"]');
     const swatchesEl = modalContent.querySelector('[data-field="swatches"]');
     const sizeSelectEl = modalContent.querySelector('[data-field="size-select"]');
+    const codigoEl = modalContent.querySelector('[data-field="codigo"]');
+
+    // Mostra o codigo do item cadastrado para a cor/tamanho escolhidos (o
+    // mesmo que aparece em Produtos Cadastrados no admin) - atualiza sempre
+    // que o cliente troca a cor ou o tamanho, em vez de mostrar sempre o
+    // codigo generico do produto.
+    function updateCodigo() {
+      const variant = variants[selectedIndex];
+      const size = sizeSelectEl.value || (variant.sizes && variant.sizes[0]) || '';
+      codigoEl.textContent = resolveItemCode(product, variant, size);
+    }
 
     function selectVariant(index) {
       selectedIndex = index;
@@ -321,10 +343,13 @@
       imageEl.src = v.imageUrl || '/img/sem-imagem.gif';
       fillSizeSelect(sizeSelectEl, v.sizes, v.sizes[0]);
       renderSwatches(swatchesEl, variants, selectedIndex, selectVariant);
+      updateCodigo();
     }
 
     fillSizeSelect(sizeSelectEl, variants[0].sizes, variants[0].sizes[0]);
     renderSwatches(swatchesEl, variants, selectedIndex, selectVariant);
+    updateCodigo();
+    sizeSelectEl.addEventListener('change', updateCodigo);
 
     modalContent.querySelector('[data-action="buy-modal"]').addEventListener('click', () => {
       const variant = variants[selectedIndex];
