@@ -610,6 +610,114 @@ router.delete('/movements/:id', async (req, res) => {
   }
 });
 
+// POST /api/stock/notes/cancel - cancela de uma vez so todos os itens ainda
+// ativos de uma nota inteira (mesmo tipo + mesmo numero de NF), em vez de
+// precisar cancelar item por item na tela de Historico de movimentacoes.
+// Mesma logica de estorno de estoque/custo medio do cancelamento avulso
+// acima, so que aplicada a todos os itens da nota dentro de uma unica
+// transacao (varias linhas do mesmo produto/cor/tamanho na mesma nota tem
+// seus ajustes somados antes de gravar, para nao ler/escrever o mesmo
+// produto com dados desatualizados).
+router.post('/notes/cancel', async (req, res) => {
+  const type = String((req.body && req.body.type) || '').trim();
+  const nf = String((req.body && req.body.nf) || '').trim();
+
+  if (type !== 'sale' && type !== 'purchase') {
+    return res.status(400).json({ error: 'Tipo de nota invalido.' });
+  }
+  if (!nf) {
+    return res.status(400).json({ error: 'Informe o numero da nota.' });
+  }
+
+  try {
+    const snapshot = await movementsRef.where('type', '==', type).where('nf', '==', nf).get();
+    const candidateRefs = snapshot.docs.filter((d) => !d.data().cancelled).map((d) => d.ref);
+
+    if (candidateRefs.length === 0) {
+      return res.status(404).json({ error: 'Nenhuma movimentacao ativa encontrada para esta nota.' });
+    }
+
+    const result = await db.runTransaction(async (transaction) => {
+      // Regra do Firestore: todas as leituras de uma transacao vem antes de
+      // qualquer escrita - por isso le tudo (movimentacoes e depois
+      // produtos) antes de calcular e gravar os ajustes.
+      const movements = [];
+      for (const ref of candidateRefs) {
+        const snap = await transaction.get(ref);
+        if (snap.exists && !snap.data().cancelled) movements.push({ ref, data: snap.data() });
+      }
+      if (movements.length === 0) {
+        throw new HttpError(400, 'Esta nota ja foi cancelada.');
+      }
+
+      const productCodes = [...new Set(movements.map((m) => m.data.code))];
+      const variantsByProduct = new Map();
+      for (const code of productCodes) {
+        const snap = await transaction.get(productsRef.doc(code));
+        if (snap.exists) variantsByProduct.set(code, (snap.data().variants || []).slice());
+      }
+
+      for (const { data: movement } of movements) {
+        const variants = variantsByProduct.get(movement.code);
+        if (!variants) {
+          throw new HttpError(
+            400,
+            `O produto "${movement.code}" desta nota nao existe mais. Cancele os itens dessa nota manualmente pelo Historico de movimentacoes.`
+          );
+        }
+        const idx = variants.findIndex((v) => v.id === movement.variantId);
+        if (idx < 0) {
+          throw new HttpError(
+            400,
+            `Uma cor desta nota nao existe mais no produto "${movement.code}". Cancele os itens dessa nota manualmente pelo Historico de movimentacoes.`
+          );
+        }
+
+        const variant = variants[idx];
+        const currentQty = Number((variant.stock && variant.stock[movement.size]) || 0);
+        const currentAvgCost = Number((variant.avgCost && variant.avgCost[movement.size]) || 0);
+        const revertedQty = movement.type === 'purchase' ? currentQty - movement.quantity : currentQty + movement.quantity;
+
+        if (revertedQty < 0) {
+          throw new HttpError(
+            400,
+            `Nao e possivel cancelar a nota inteira: o estoque atual de ${movement.description} (${movement.color}/${movement.size}) e menor do que a quantidade desta compra - parte dela ja foi vendida.`
+          );
+        }
+
+        let revertedAvgCost = currentAvgCost;
+        if (movement.type === 'purchase') {
+          const totalCostValue = currentAvgCost * currentQty;
+          const reducedCostValue = totalCostValue - movement.unitPrice * movement.quantity;
+          revertedAvgCost = revertedQty > 0 ? Math.max(0, reducedCostValue / revertedQty) : 0;
+        }
+
+        variants[idx] = {
+          ...variant,
+          stock: { ...(variant.stock || {}), [movement.size]: revertedQty },
+          avgCost: { ...(variant.avgCost || {}), [movement.size]: revertedAvgCost },
+        };
+      }
+
+      for (const code of productCodes) {
+        const variants = variantsByProduct.get(code);
+        if (variants) transaction.update(productsRef.doc(code), { variants });
+      }
+      for (const { ref } of movements) {
+        transaction.update(ref, { cancelled: true, cancelledAt: FieldValue.serverTimestamp() });
+      }
+
+      return { cancelledCount: movements.length };
+    });
+
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    if (err instanceof HttpError) return res.status(err.status).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ error: 'Erro ao cancelar a nota.' });
+  }
+});
+
 // PATCH /api/stock/movements/:id - corrige o numero da nota (nf) de uma
 // movimentacao ja lancada. Uso principal: vendas/compras avulsas lancadas
 // sem numero de nota (antes de esse campo virar obrigatorio na tela de Nota

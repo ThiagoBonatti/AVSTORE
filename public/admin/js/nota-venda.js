@@ -470,7 +470,10 @@ function renderSaleNotesGrid() {
           <td>${currency.format(n.total)}</td>
           <td>${currency.format(n.freight)}</td>
           <td>${escapeHtml(n.party || '-')}</td>
-          <td><a class="btn btn-ghost btn-sm" href="/admin/ver-nota.html?type=sale&nf=${encodeURIComponent(n.nf)}">Ver nota</a></td>
+          <td class="row-actions">
+            <a class="btn btn-ghost btn-sm" href="/admin/ver-nota.html?type=sale&nf=${encodeURIComponent(n.nf)}">Ver nota</a>
+            <button type="button" class="btn btn-danger btn-sm" data-action="cancel-note" data-nf="${escapeHtml(n.nf)}">Cancelar nota</button>
+          </td>
         </tr>
       `
     )
@@ -490,6 +493,39 @@ function renderSaleNotesGrid() {
 
   saleNotesTableBody.innerHTML = rowsHtml + totalsRowHtml;
 }
+
+// Cancela a nota inteira de uma vez (todos os itens ainda ativos daquela
+// NF), em vez de precisar cancelar item por item na tela de Historico de
+// movimentacoes. Devolve a quantidade de cada item ao estoque, do mesmo
+// jeito que cancelar um item avulso.
+saleNotesTableBody.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-action="cancel-note"]');
+  if (!btn) return;
+
+  const nf = btn.dataset.nf;
+  if (!confirm(`Cancelar a nota de venda ${nf} inteira? Todos os itens ainda ativos dessa nota serao cancelados e a quantidade sera devolvida ao estoque.`)) {
+    return;
+  }
+
+  btn.disabled = true;
+  try {
+    const res = await authedFetch('/api/stock/notes/cancel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'sale', nf }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.error || 'Erro ao cancelar a nota.');
+      btn.disabled = false;
+      return;
+    }
+    await Promise.all([loadCatalog(), loadAllMovementsForNotes()]);
+  } catch (err) {
+    alert('Erro de conexao com o servidor.');
+    btn.disabled = false;
+  }
+});
 
 // Busca TODAS as movimentacoes (paginando em lotes de 300, o maximo aceito
 // pela API por chamada) para alimentar a grade de notas e o calculo do
