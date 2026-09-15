@@ -78,6 +78,7 @@ function serializeMovement(doc) {
     nf: data.nf || null,
     invoiceDate: data.invoiceDate || null,
     freightShare: data.freightShare ?? null,
+    discountShare: data.discountShare ?? null,
     vendedor: data.vendedor || null,
     comissaoPercentual: data.comissaoPercentual ?? null,
     comissaoValue: data.comissaoValue ?? null,
@@ -384,6 +385,7 @@ async function runStockMovementTransaction({
   nf = null,
   invoiceDate = null,
   freightShare = null,
+  discountShare = null,
   vendedor = null,
   comissaoPercentual = null,
   comissaoValue = null,
@@ -463,6 +465,7 @@ async function runStockMovementTransaction({
       nf,
       invoiceDate,
       freightShare,
+      discountShare,
       vendedor,
       comissaoPercentual,
       comissaoValue,
@@ -635,10 +638,12 @@ router.patch('/movements/:id', async (req, res) => {
 
 // -------------------- Nota de venda (lancamento manual, varios itens) --------------------
 // POST /api/stock/sale-note/commit - lanca varias vendas de uma vez, todas
-// pertencendo a mesma nota (mesma NF/data/cliente), com rateio de frete ja
-// calculado no navegador (mesmo principio do rateio de frete da nota de
-// compra - ver comentario mais abaixo). Diferente da nota de compra, aqui
-// nunca ha produto novo: venda so pode ser de algo que ja existe no
+// pertencendo a mesma nota (mesma NF/data/cliente), com rateio de frete e de
+// desconto ja calculados no navegador (mesmo principio do rateio de frete da
+// nota de compra - ver comentario mais abaixo). "discountShare" e guardado
+// junto da movimentacao so como informacao (mesmo tratamento do
+// "freightShare") - nao altera unitPrice/totalPrice/margem. Diferente da
+// nota de compra, aqui nunca ha produto novo: venda so pode ser de algo que ja existe no
 // catalogo. Cada linha e lancada em sua propria transacao (mesma funcao
 // runStockMovementTransaction usada pelo lancamento manual avulso), entao um
 // erro numa linha (ex.: estoque insuficiente) nao desfaz as anteriores - a
@@ -658,6 +663,7 @@ router.post('/sale-note/commit', async (req, res) => {
     const quantity = Number(line && line.quantity);
     const unitPrice = Number(line && line.unitPrice);
     const freightShare = Number((line && line.freightShare) || 0);
+    const discountShare = Number((line && line.discountShare) || 0);
     const comissaoPercentual = line && line.comissaoPercentual != null && line.comissaoPercentual !== ''
       ? Number(line.comissaoPercentual)
       : null;
@@ -669,6 +675,7 @@ router.post('/sale-note/commit', async (req, res) => {
     if (!Number.isInteger(quantity) || quantity <= 0) errors.push(`${label}: quantidade invalida.`);
     if (!Number.isFinite(unitPrice) || unitPrice < 0) errors.push(`${label}: preco unitario invalido.`);
     if (!Number.isFinite(freightShare) || freightShare < 0) errors.push(`${label}: rateio de frete invalido.`);
+    if (!Number.isFinite(discountShare) || discountShare < 0) errors.push(`${label}: rateio de desconto invalido.`);
     if (comissaoPercentual !== null && (!Number.isFinite(comissaoPercentual) || comissaoPercentual < 0 || comissaoPercentual > 100)) {
       errors.push(`${label}: percentual de comissao invalido (use um numero entre 0 e 100).`);
     }
@@ -686,6 +693,7 @@ router.post('/sale-note/commit', async (req, res) => {
     const quantity = Number(line.quantity);
     const unitPrice = Number(line.unitPrice);
     const freightShare = Number(line.freightShare || 0);
+    const discountShare = Number(line.discountShare || 0);
 
     const customer = line.cliente && String(line.cliente).trim()
       ? { name: String(line.cliente).trim(), contact: '' }
@@ -712,6 +720,7 @@ router.post('/sale-note/commit', async (req, res) => {
         nf: line.nf || null,
         invoiceDate: line.invoiceDate || null,
         freightShare,
+        discountShare,
         vendedor,
         comissaoPercentual,
         comissaoValue,

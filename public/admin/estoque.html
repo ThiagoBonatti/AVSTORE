@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AVSTORE Admin - Compras, Vendas e Estoque</title>
+<title>AVSTORE Admin - Estoque e Movimentações</title>
 <link rel="icon" type="image/png" href="/img/favicon-32.png" />
 <link rel="apple-touch-icon" href="/img/favicon-180.png" />
 <link rel="stylesheet" href="/admin/css/admin.css" />
@@ -13,9 +13,9 @@
     <div class="admin-logo"><img src="/img/logo.png" alt="AVSTORE" class="admin-logo-img" /><span>Admin</span></div>
     <nav class="admin-nav">
       <a href="/admin/dashboard.html" class="admin-nav-link">Produtos</a>
-      <a href="/admin/estoque.html" class="admin-nav-link active">Compras, vendas e estoque</a>
+      <a href="/admin/estoque.html" class="admin-nav-link active">Estoque e Movimentações</a>
       <a href="/admin/nota-compra.html" class="admin-nav-link">Nota de compra</a>
-      <a href="/admin/nota-venda.html" class="admin-nav-link">Nota de venda</a>
+      <a href="/admin/nota-venda.html" class="admin-nav-link">Notas de Venda</a>
       <a href="/admin/relatorios.html" class="admin-nav-link">Relatorios</a>
     </nav>
     <div class="admin-header-actions">
@@ -63,26 +63,6 @@
             </tr>
           </thead>
           <tbody id="purchase-notes-table-body"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="admin-card">
-      <div class="card-header-row">
-        <h2>Notas de venda</h2>
-      </div>
-      <div class="table-wrapper">
-        <table>
-          <thead>
-            <tr>
-              <th>Nro nota</th>
-              <th>Valor total</th>
-              <th>Valor do frete</th>
-              <th>Cliente</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="sale-notes-table-body"></tbody>
         </table>
       </div>
     </section>

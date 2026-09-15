@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AVSTORE Admin - Nota de Venda</title>
+<title>AVSTORE Admin - Notas de Venda</title>
 <link rel="icon" type="image/png" href="/img/favicon-32.png" />
 <link rel="apple-touch-icon" href="/img/favicon-180.png" />
 <link rel="stylesheet" href="/admin/css/admin.css" />
@@ -13,9 +13,9 @@
     <div class="admin-logo"><img src="/img/logo.png" alt="AVSTORE" class="admin-logo-img" /><span>Admin</span></div>
     <nav class="admin-nav">
       <a href="/admin/dashboard.html" class="admin-nav-link">Produtos</a>
-      <a href="/admin/estoque.html" class="admin-nav-link">Compras, vendas e estoque</a>
+      <a href="/admin/estoque.html" class="admin-nav-link">Estoque e Movimentações</a>
       <a href="/admin/nota-compra.html" class="admin-nav-link">Nota de compra</a>
-      <a href="/admin/nota-venda.html" class="admin-nav-link active">Nota de venda</a>
+      <a href="/admin/nota-venda.html" class="admin-nav-link active">Notas de Venda</a>
       <a href="/admin/relatorios.html" class="admin-nav-link">Relatorios</a>
     </nav>
     <div class="admin-header-actions">
@@ -34,8 +34,8 @@
       </p>
       <form id="nota-header-form" class="product-form">
         <label>
-          Nro da nota <span class="field-hint">(obrigatorio)</span>
-          <input type="text" id="header-nf" placeholder="Numero da nota" required />
+          Nro da nota <span class="field-hint">(gerado automaticamente)</span>
+          <input type="text" id="header-nf" readonly />
         </label>
         <label>
           Data da nota <span class="field-hint">(opcional)</span>
@@ -48,6 +48,10 @@
         <label>
           Valor do frete (R$) <span class="field-hint">(opcional)</span>
           <input type="number" id="header-frete" min="0" step="0.01" value="0" />
+        </label>
+        <label>
+          Vlr. Desconto (R$) <span class="field-hint">(opcional - rateado proporcionalmente entre os itens)</span>
+          <input type="number" id="header-desconto" min="0" step="0.01" value="0" />
         </label>
         <label>
           Vendedor <span class="field-hint">(opcional)</span>
@@ -114,6 +118,7 @@
               <th>Qtd</th>
               <th>Valor unit.</th>
               <th>Rateio frete</th>
+              <th>Desconto</th>
               <th>Valor total</th>
               <th></th>
             </tr>
@@ -126,12 +131,33 @@
         <div class="nota-totals">
           <span>Subtotal: <strong id="totals-subtotal">R$ 0,00</strong></span>
           <span>Frete: <strong id="totals-freight">R$ 0,00</strong></span>
-          <span>Total com frete: <strong id="totals-grand">R$ 0,00</strong></span>
+          <span>Desconto: <strong id="totals-discount">R$ 0,00</strong></span>
+          <span>Total: <strong id="totals-grand">R$ 0,00</strong></span>
           <span id="totals-commission-wrap" hidden>Comissao: <strong id="totals-commission">R$ 0,00</strong></span>
         </div>
         <button type="button" id="finalize-btn" class="btn btn-primary">Finalizar nota de venda</button>
       </div>
       <p id="finalize-message" class="form-message" hidden></p>
+    </section>
+
+    <section class="admin-card">
+      <div class="card-header-row">
+        <h2>Notas de venda</h2>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Nro nota</th>
+              <th>Valor total</th>
+              <th>Valor do frete</th>
+              <th>Cliente</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="sale-notes-table-body"></tbody>
+        </table>
+      </div>
     </section>
   </main>
 

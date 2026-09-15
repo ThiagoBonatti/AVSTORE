@@ -27,7 +27,6 @@ const exportHistoryBtn = document.getElementById('export-history-btn');
 const exportHistoryMessage = document.getElementById('export-history-message');
 
 const purchaseNotesTableBody = document.getElementById('purchase-notes-table-body');
-const saleNotesTableBody = document.getElementById('sale-notes-table-body');
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const dateFormatter = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
@@ -332,18 +331,21 @@ exportHistoryBtn.addEventListener('click', async () => {
   }
 });
 
-// -------------------- Notas de compra / venda (agrupadas por NF) --------------------
+// -------------------- Notas de compra (agrupadas por NF) --------------------
 // Agrupa por numero de NF, uma linha por nota em vez de uma linha por item.
 // So movimentacoes com NF preenchida entram aqui (lancamentos avulsos sem
 // nota continuam aparecendo apenas no Historico). "Valor total" inclui o
 // frete, igual a tela "Ver nota".
 //
+// A grade de "Notas de venda" mudou para a tela "Notas de Venda"
+// (public/admin/js/nota-venda.js), que agora usa a mesma logica abaixo.
+//
 // Importante: usa "allMovementsForNotes" (busca TODAS as movimentacoes, sem
 // o limite de paginacao do Historico abaixo) e nao o array "movements" - uma
 // loja com muitas movimentacoes facilmente passa das 150 mais recentes
-// carregadas no Historico, e uma nota mais antiga (ex.: uma venda lancada
-// antes de uma importacao grande de compras) ficaria de fora dessas grades
-// mesmo tendo sido lancada normalmente.
+// carregadas no Historico, e uma nota mais antiga (ex.: uma compra lancada
+// antes de uma importacao grande) ficaria de fora dessas grades mesmo tendo
+// sido lancada normalmente.
 function round2(n) {
   return Math.round(n * 100) / 100;
 }
@@ -406,7 +408,6 @@ function renderNotesGrid(tbody, type, partyLabel) {
 
 function renderNotesGrids() {
   renderNotesGrid(purchaseNotesTableBody, 'purchase');
-  renderNotesGrid(saleNotesTableBody, 'sale');
 }
 
 // Busca TODAS as movimentacoes (paginando em lotes de 300, o maximo aceito

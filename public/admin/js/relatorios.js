@@ -28,7 +28,7 @@ const statMarginPct = document.getElementById('stat-margin-pct');
 const statItems = document.getElementById('stat-items');
 const statTicket = document.getElementById('stat-ticket');
 
-const chartContainer = document.getElementById('sales-chart');
+const chartContainer = document.getElementById('product-chart');
 
 const customerTableBody = document.getElementById('customer-table-body');
 const customerFilterInput = document.getElementById('customer-filter');
@@ -145,10 +145,10 @@ async function loadReport(from, to) {
   const data = await res.json();
 
   renderStats(data.totals);
-  renderChart(bucketizeByDay(data.byDay, from, to));
 
   byCustomer = data.byCustomer || [];
   byProduct = data.byProduct || [];
+  renderProductChart(byProduct);
   renderCustomerTable();
   renderProductTable();
 }
@@ -163,51 +163,25 @@ function renderStats(totals) {
   statTicket.textContent = currency.format(totals.avgTicket || 0);
 }
 
-// -------------------- Grafico: vendas por dia (com agregacao automatica) --------------------
-// Com periodos longos, um lote diario teria bares demais para caber com
-// legibilidade — agrega por mes (periodos de ate ~2 anos) ou por ano
-// (periodos maiores) automaticamente.
-function bucketizeByDay(byDay, from, to) {
-  const spanDays = Math.max(1, Math.round((to - from) / 86400000));
-  const map = new Map();
-  let keyFn;
-  let labelFn;
+// -------------------- Grafico: vendas por produto (ordenado pelo mais vendido) --------------------
+const PRODUCT_CHART_MAX_BARS = 15;
 
-  if (spanDays <= 45) {
-    keyFn = (dateStr) => dateStr;
-    labelFn = (key) => {
-      const [, m, d] = key.split('-');
-      return `${d}/${m}`;
-    };
-  } else if (spanDays <= 731) {
-    keyFn = (dateStr) => dateStr.slice(0, 7);
-    labelFn = (key) => {
-      const [y, m] = key.split('-');
-      return `${m}/${y.slice(2)}`;
-    };
-  } else {
-    keyFn = (dateStr) => dateStr.slice(0, 4);
-    labelFn = (key) => key;
-  }
-
-  byDay.forEach((d) => {
-    const key = keyFn(d.date);
-    if (!map.has(key)) map.set(key, { key, salesAmount: 0 });
-    map.get(key).salesAmount += d.salesAmount;
-  });
-
-  return Array.from(map.values()).map((e) => ({ ...e, label: labelFn(e.key) }));
+function shortProductLabel(p) {
+  const desc = p.description || p.code || '';
+  return desc.length > 14 ? `${desc.slice(0, 14)}...` : desc;
 }
 
-function renderChart(data) {
+function renderProductChart(rows) {
   chartContainer.innerHTML = '';
+
+  const data = [...rows].sort((a, b) => (b.itemsCount || 0) - (a.itemsCount || 0)).slice(0, PRODUCT_CHART_MAX_BARS);
+
   if (data.length === 0) {
     chartContainer.innerHTML = '<p class="empty-state">Nenhuma venda no periodo selecionado.</p>';
     return;
   }
 
-  const max = Math.max(1, ...data.map((d) => d.salesAmount));
-  const labelEvery = Math.max(1, Math.ceil(data.length / 12));
+  const max = Math.max(1, ...data.map((d) => d.itemsCount || 0));
 
   chartContainer.style.position = 'relative';
 
@@ -228,18 +202,18 @@ function renderChart(data) {
     tooltip.style.top = `${colRect.top - contRect.top - 8}px`;
   }
 
-  data.forEach((d, i) => {
+  data.forEach((d) => {
     const col = document.createElement('div');
     col.className = 'bar-chart-col';
 
     const bar = document.createElement('div');
     bar.className = 'bar-chart-bar';
-    const pct = max > 0 ? (d.salesAmount / max) * 100 : 0;
-    bar.style.height = `${Math.max(pct, d.salesAmount > 0 ? 1 : 0)}%`;
+    const pct = max > 0 ? ((d.itemsCount || 0) / max) * 100 : 0;
+    bar.style.height = `${Math.max(pct, (d.itemsCount || 0) > 0 ? 1 : 0)}%`;
     col.appendChild(bar);
 
     col.addEventListener('mouseenter', () => {
-      tooltip.innerHTML = `<strong>${escapeHtml(d.label)}</strong><br>${currency.format(d.salesAmount)}`;
+      tooltip.innerHTML = `<strong>${escapeHtml(d.description || d.code)}</strong><br>${d.itemsCount || 0} itens vendidos<br>${currency.format(d.amount || 0)}`;
       tooltip.hidden = false;
       positionTooltip(col);
     });
@@ -251,7 +225,7 @@ function renderChart(data) {
 
     const labelEl = document.createElement('span');
     labelEl.className = 'bar-chart-label';
-    labelEl.textContent = i % labelEvery === 0 ? d.label : '';
+    labelEl.textContent = shortProductLabel(d);
     labelsRow.appendChild(labelEl);
   });
 

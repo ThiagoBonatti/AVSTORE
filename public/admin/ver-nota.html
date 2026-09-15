@@ -13,9 +13,9 @@
     <div class="admin-logo"><img src="/img/logo.png" alt="AVSTORE" class="admin-logo-img" /><span>Admin</span></div>
     <nav class="admin-nav">
       <a href="/admin/dashboard.html" class="admin-nav-link">Produtos</a>
-      <a href="/admin/estoque.html" class="admin-nav-link">Compras, vendas e estoque</a>
+      <a href="/admin/estoque.html" class="admin-nav-link">Estoque e Movimentações</a>
       <a href="/admin/nota-compra.html" class="admin-nav-link">Nota de compra</a>
-      <a href="/admin/nota-venda.html" class="admin-nav-link">Nota de venda</a>
+      <a href="/admin/nota-venda.html" class="admin-nav-link">Notas de Venda</a>
       <a href="/admin/relatorios.html" class="admin-nav-link">Relatorios</a>
     </nav>
     <div class="admin-header-actions">
@@ -39,6 +39,7 @@
           <div><span class="field-hint">Data da nota</span><div id="field-data">-</div></div>
           <div><span class="field-hint" id="field-party-label">Fornecedor</span><div id="field-party">-</div></div>
           <div><span class="field-hint">Valor do frete</span><div id="field-frete">-</div></div>
+          <div id="field-desconto-wrap" hidden><span class="field-hint">Valor do desconto</span><div id="field-desconto">-</div></div>
           <div><span class="field-hint">Valor total</span><div id="field-total">-</div></div>
           <div id="field-vendedor-wrap" hidden><span class="field-hint">Vendedor</span><div id="field-vendedor">-</div></div>
           <div id="field-comissao-wrap" hidden><span class="field-hint">Comissao</span><div id="field-comissao">-</div></div>
@@ -56,6 +57,7 @@
                 <th>Quantidade</th>
                 <th>Valor total</th>
                 <th>Rateio de frete</th>
+                <th>Desconto</th>
               </tr>
             </thead>
             <tbody id="items-table-body"></tbody>

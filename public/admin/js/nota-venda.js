@@ -20,6 +20,7 @@ const headerNfInput = document.getElementById('header-nf');
 const headerDataNfInput = document.getElementById('header-data-nf');
 const headerClienteInput = document.getElementById('header-cliente');
 const headerFreteInput = document.getElementById('header-frete');
+const headerDescontoInput = document.getElementById('header-desconto');
 const headerVendedorInput = document.getElementById('header-vendedor');
 const headerComissaoInput = document.getElementById('header-comissao');
 
@@ -36,11 +37,14 @@ const itemsTableBody = document.getElementById('items-table-body');
 const emptyItemsHint = document.getElementById('empty-items-hint');
 const totalsSubtotalEl = document.getElementById('totals-subtotal');
 const totalsFreightEl = document.getElementById('totals-freight');
+const totalsDiscountEl = document.getElementById('totals-discount');
 const totalsGrandEl = document.getElementById('totals-grand');
 const totalsCommissionWrap = document.getElementById('totals-commission-wrap');
 const totalsCommissionEl = document.getElementById('totals-commission');
 const finalizeBtn = document.getElementById('finalize-btn');
 const finalizeMessage = document.getElementById('finalize-message');
+
+const saleNotesTableBody = document.getElementById('sale-notes-table-body');
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -48,6 +52,7 @@ let currentUser = null;
 let catalogProducts = [];
 let lines = [];
 let lineSeq = 0;
+let allMovementsForNotes = [];
 
 function escapeHtml(str) {
   const div = document.createElement('div');
@@ -91,7 +96,8 @@ onAuthStateChanged(authClient, async (user) => {
 
   currentUser = user;
   adminUsernameEl.textContent = user.email;
-  await loadCatalog();
+  await Promise.all([loadCatalog(), loadAllMovementsForNotes()]);
+  setNextHeaderNf();
   renderItems();
 });
 
@@ -144,7 +150,16 @@ function updateManualSizeOptions() {
   }
 }
 
-manualProductSelect.addEventListener('change', updateManualColorOptions);
+// Ao escolher o produto direto no combo (sem usar o atalho de codigo
+// abaixo), preenche o Valor unitario sozinho com o preco de venda cadastrado
+// - o campo continua editavel depois, e so um ponto de partida.
+manualProductSelect.addEventListener('change', () => {
+  updateManualColorOptions();
+  const product = catalogProducts.find((p) => p.code === manualProductSelect.value);
+  if (product && product.price != null) {
+    manualUnitPriceInput.value = product.price;
+  }
+});
 manualColorSelect.addEventListener('change', updateManualSizeOptions);
 
 // -------------------- Codigo de barras (atalho) --------------------
@@ -166,37 +181,60 @@ function findByItemCode(rawCode) {
   return null;
 }
 
+// Nem todo produto tem codigo de barras por tamanho cadastrado (aquele campo
+// e opcional na tela de Produtos) - por isso, quando o codigo digitado nao
+// bate com nenhum item, tambem tenta casar direto com o "Codigo" principal
+// do produto (o mesmo identificador usado no cadastro/estoque). Nesse caso
+// so o produto e preenchido; cor e tamanho continuam para selecao manual.
+function findByProductCode(rawCode) {
+  const code = String(rawCode || '').trim().toLowerCase();
+  if (!code) return null;
+  const product = catalogProducts.find((p) => String(p.code || '').trim().toLowerCase() === code);
+  return product ? { product, variant: null, size: null } : null;
+}
+
 function applyCodeMatch(match) {
   manualProductSelect.value = match.product.code;
   updateManualColorOptions();
-  manualColorSelect.value = match.variant.id;
-  updateManualSizeOptions();
-  manualSizeSelect.value = match.size;
+  if (match.variant) {
+    manualColorSelect.value = match.variant.id;
+    updateManualSizeOptions();
+  }
+  if (match.size) {
+    manualSizeSelect.value = match.size;
+  }
   if (match.product.price != null) {
     manualUnitPriceInput.value = match.product.price;
   }
 }
 
-function handleManualCodeLookup() {
+// "showError" so marca o campo em vermelho quando o admin realmente terminou
+// de digitar (blur/Enter) - durante a digitacao (evento "input") o codigo
+// ainda esta incompleto na maior parte do tempo, entao so preenche quando ja
+// da pra achar uma correspondencia e nunca marca erro nesse meio-tempo.
+function handleManualCodeLookup(showError) {
   const value = manualCodeInput.value.trim();
   if (!value) {
     manualCodeInput.classList.remove('input-error');
     return;
   }
-  const match = findByItemCode(value);
+  const match = findByItemCode(value) || findByProductCode(value);
   if (match) {
     applyCodeMatch(match);
     manualCodeInput.classList.remove('input-error');
-  } else {
+  } else if (showError) {
     manualCodeInput.classList.add('input-error');
+  } else {
+    manualCodeInput.classList.remove('input-error');
   }
 }
 
-manualCodeInput.addEventListener('change', handleManualCodeLookup);
+manualCodeInput.addEventListener('input', () => handleManualCodeLookup(false));
+manualCodeInput.addEventListener('change', () => handleManualCodeLookup(true));
 manualCodeInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
-    handleManualCodeLookup();
+    handleManualCodeLookup(true);
   }
 });
 
@@ -246,24 +284,41 @@ manualAddBtn.addEventListener('click', () => {
   renderItems();
 });
 
-// -------------------- Rateio do frete --------------------
+// -------------------- Rateio do frete / desconto --------------------
+// Mesma logica proporcional para os dois: cada item recebe uma fatia do
+// valor do cabecalho de acordo com o seu peso no subtotal da nota (qtd x
+// valor unitario). O ultimo item absorve a diferenca de arredondamento, para
+// a soma das fatias bater exatamente com o valor digitado no cabecalho.
 function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
-function computeFreightShares(lineList, freight) {
+function computeProportionalShares(lineList, amount) {
   const subtotals = lineList.map((l) => l.quantity * l.unitPrice);
   const total = subtotals.reduce((a, b) => a + b, 0);
-  const shares = lineList.map((l, i) => (freight > 0 && total > 0 ? round2(freight * (subtotals[i] / total)) : 0));
-  if (freight > 0 && total > 0 && shares.length) {
+  const shares = lineList.map((l, i) => (amount > 0 && total > 0 ? round2(amount * (subtotals[i] / total)) : 0));
+  if (amount > 0 && total > 0 && shares.length) {
     const allocated = round2(shares.reduce((a, b) => a + b, 0));
-    shares[shares.length - 1] = round2(shares[shares.length - 1] + round2(freight - allocated));
+    shares[shares.length - 1] = round2(shares[shares.length - 1] + round2(amount - allocated));
   }
   return shares;
 }
 
+function computeFreightShares(lineList, freight) {
+  return computeProportionalShares(lineList, freight);
+}
+
+function computeDiscountShares(lineList, desconto) {
+  return computeProportionalShares(lineList, desconto);
+}
+
 function currentFreight() {
   const v = Number(headerFreteInput.value);
+  return Number.isFinite(v) && v >= 0 ? v : 0;
+}
+
+function currentDesconto() {
+  const v = Number(headerDescontoInput.value);
   return Number.isFinite(v) && v >= 0 ? v : 0;
 }
 
@@ -283,11 +338,14 @@ function renderItems() {
   emptyItemsHint.hidden = lines.length > 0;
 
   const freight = currentFreight();
-  const shares = computeFreightShares(lines, freight);
+  const desconto = currentDesconto();
+  const freightShares = computeFreightShares(lines, freight);
+  const discountShares = computeDiscountShares(lines, desconto);
 
   itemsTableBody.innerHTML = lines
     .map((l, i) => {
-      const share = shares[i];
+      const share = freightShares[i];
+      const discountShare = discountShares[i];
       const subtotal = round2(l.quantity * l.unitPrice);
       return `
         <tr data-uid="${escapeHtml(l.uid)}">
@@ -298,6 +356,7 @@ function renderItems() {
           <td>${l.quantity}</td>
           <td>${currency.format(l.unitPrice)}</td>
           <td data-cell="share">${currency.format(share)}</td>
+          <td data-cell="discount">${currency.format(discountShare)}</td>
           <td data-cell="subtotal">${currency.format(subtotal)}</td>
           <td><button type="button" class="icon-btn" data-action="remove-line" aria-label="Remover item">✕</button></td>
         </tr>
@@ -308,7 +367,8 @@ function renderItems() {
   const subtotalSum = round2(lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0));
   totalsSubtotalEl.textContent = currency.format(subtotalSum);
   totalsFreightEl.textContent = currency.format(freight);
-  totalsGrandEl.textContent = currency.format(round2(subtotalSum + freight));
+  totalsDiscountEl.textContent = currency.format(desconto);
+  totalsGrandEl.textContent = currency.format(round2(subtotalSum + freight - desconto));
 
   const comissaoPercentual = currentComissaoPercentual();
   if (comissaoPercentual !== null) {
@@ -320,6 +380,7 @@ function renderItems() {
 }
 
 headerFreteInput.addEventListener('input', renderItems);
+headerDescontoInput.addEventListener('input', renderItems);
 headerComissaoInput.addEventListener('input', renderItems);
 
 itemsTableBody.addEventListener('click', (e) => {
@@ -329,6 +390,110 @@ itemsTableBody.addEventListener('click', (e) => {
   lines = lines.filter((l) => l.uid !== row.dataset.uid);
   renderItems();
 });
+
+// -------------------- Numero da nota (sequencial automatico) --------------------
+// O campo "Nro da nota" e so-leitura na tela: em vez do admin digitar,
+// calculamos o proximo numero como o maior "nf" numerico ja usado em vendas
+// anteriores + 1 (o mesmo "allMovementsForNotes" carregado abaixo para a
+// grade de Notas de venda). NF antigas nao-numericas (ex.: importadas de
+// outro sistema) sao ignoradas nesse calculo, mas nao atrapalham.
+function computeNextSaleNoteNumber() {
+  let maxN = 0;
+  allMovementsForNotes.forEach((m) => {
+    if (m.type !== 'sale' || !m.nf) return;
+    const n = Number(String(m.nf).trim());
+    if (Number.isFinite(n) && n > maxN) maxN = n;
+  });
+  return maxN + 1;
+}
+
+function setNextHeaderNf() {
+  headerNfInput.value = String(computeNextSaleNoteNumber());
+}
+
+// -------------------- Notas de venda (agrupadas por NF) --------------------
+// Mesma grade que existia na tela "Compras, vendas e estoque" (agora
+// "Estoque e Movimentações"), movida para ca. Agrupa por numero de NF, uma
+// linha por nota em vez de uma linha por item - so movimentacoes com NF
+// preenchida entram aqui.
+function groupMovementsByNote() {
+  const map = new Map();
+  allMovementsForNotes.forEach((m) => {
+    if (m.type !== 'sale' || !m.nf || m.cancelled) return;
+    if (!map.has(m.nf)) {
+      map.set(m.nf, { nf: m.nf, subtotal: 0, freight: 0, party: null, createdAt: m.createdAt });
+    }
+    const entry = map.get(m.nf);
+    entry.subtotal += m.totalPrice || 0;
+    entry.freight += m.freightShare || 0;
+    if (!entry.party) {
+      entry.party = m.customer && m.customer.name ? m.customer.name : null;
+    }
+    if (m.createdAt && (!entry.createdAt || m.createdAt > entry.createdAt)) entry.createdAt = m.createdAt;
+  });
+  return Array.from(map.values())
+    .map((e) => ({ ...e, subtotal: round2(e.subtotal), freight: round2(e.freight), total: round2(e.subtotal + e.freight) }))
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+}
+
+function renderSaleNotesGrid() {
+  const notes = groupMovementsByNote();
+  if (notes.length === 0) {
+    saleNotesTableBody.innerHTML = '<tr class="empty-row"><td colspan="5">Nenhuma nota de venda encontrada.</td></tr>';
+    return;
+  }
+  const rowsHtml = notes
+    .map(
+      (n) => `
+        <tr>
+          <td>${escapeHtml(n.nf)}</td>
+          <td>${currency.format(n.total)}</td>
+          <td>${currency.format(n.freight)}</td>
+          <td>${escapeHtml(n.party || '-')}</td>
+          <td><a class="btn btn-ghost btn-sm" href="/admin/ver-nota.html?type=sale&nf=${encodeURIComponent(n.nf)}">Ver nota</a></td>
+        </tr>
+      `
+    )
+    .join('');
+
+  const totalGeral = round2(notes.reduce((sum, n) => sum + n.total, 0));
+  const totalFrete = round2(notes.reduce((sum, n) => sum + n.freight, 0));
+  const totalsRowHtml = `
+    <tr class="notes-totals-row">
+      <td>Total (${notes.length} ${notes.length === 1 ? 'nota' : 'notas'})</td>
+      <td>${currency.format(totalGeral)}</td>
+      <td>${currency.format(totalFrete)}</td>
+      <td></td>
+      <td></td>
+    </tr>
+  `;
+
+  saleNotesTableBody.innerHTML = rowsHtml + totalsRowHtml;
+}
+
+// Busca TODAS as movimentacoes (paginando em lotes de 300, o maximo aceito
+// pela API por chamada) para alimentar a grade de notas e o calculo do
+// proximo numero de nota. Para uma loja pequena isso costuma ser 1-2
+// chamadas; o limite de 20 paginas (ate 6000 movimentacoes) e so uma trava
+// de seguranca contra um loop infinito.
+async function loadAllMovementsForNotes() {
+  const collected = [];
+  let before = null;
+  for (let page = 0; page < 20; page += 1) {
+    const params = new URLSearchParams({ limit: '300' });
+    if (before) params.set('before', before);
+    // eslint-disable-next-line no-await-in-loop
+    const res = await authedFetch(`/api/stock/movements?${params.toString()}`);
+    // eslint-disable-next-line no-await-in-loop
+    const data = await res.json();
+    const items = data.items || [];
+    collected.push(...items);
+    if (items.length < 300) break;
+    before = items[items.length - 1].createdAt;
+  }
+  allMovementsForNotes = collected;
+  renderSaleNotesGrid();
+}
 
 // -------------------- Finalizar a nota --------------------
 function showFinalizeMessage(text, type) {
@@ -364,7 +529,9 @@ finalizeBtn.addEventListener('click', async () => {
   const vendedor = headerVendedorInput.value.trim() || null;
   const comissaoPercentual = currentComissaoPercentual();
   const freight = currentFreight();
-  const shares = computeFreightShares(lines, freight);
+  const desconto = currentDesconto();
+  const freightShares = computeFreightShares(lines, freight);
+  const discountShares = computeDiscountShares(lines, desconto);
 
   const payload = {
     lines: lines.map((l, i) => ({
@@ -373,7 +540,8 @@ finalizeBtn.addEventListener('click', async () => {
       size: l.size,
       quantity: l.quantity,
       unitPrice: l.unitPrice,
-      freightShare: shares[i],
+      freightShare: freightShares[i],
+      discountShare: discountShares[i],
       nf,
       invoiceDate,
       cliente,
@@ -400,7 +568,7 @@ finalizeBtn.addEventListener('click', async () => {
         `${data.error || 'parte da nota foi lancada. Corrija o item indicado e clique em "Finalizar nota de venda" novamente para lancar o restante.'}`,
         'error'
       );
-      await loadCatalog();
+      await Promise.all([loadCatalog(), loadAllMovementsForNotes()]);
       return;
     }
 
@@ -410,15 +578,20 @@ finalizeBtn.addEventListener('click', async () => {
     }
 
     lines = [];
-    headerNfInput.value = '';
     headerDataNfInput.value = '';
     headerClienteInput.value = '';
     headerFreteInput.value = '0';
+    headerDescontoInput.value = '0';
     headerVendedorInput.value = '';
     headerComissaoInput.value = '';
     renderItems();
     showFinalizeMessage(`Nota de venda lancada com sucesso: ${data.summary.movementsCreated} venda(s) registrada(s).`, 'success');
-    await loadCatalog();
+    // Recarrega o catalogo (estoque atualizado) e as movimentacoes (grade de
+    // Notas de venda) e so ai calcula o proximo numero de nota - precisa ser
+    // depois do reload, senao a nota que acabou de ser lancada ainda nao
+    // entraria na conta e o proximo numero saira repetido.
+    await Promise.all([loadCatalog(), loadAllMovementsForNotes()]);
+    setNextHeaderNf();
   } catch (err) {
     showFinalizeMessage('Erro de conexao com o servidor.', 'error');
   } finally {

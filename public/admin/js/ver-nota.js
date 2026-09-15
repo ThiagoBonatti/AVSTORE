@@ -24,6 +24,8 @@ const fieldDataEl = document.getElementById('field-data');
 const fieldPartyLabelEl = document.getElementById('field-party-label');
 const fieldPartyEl = document.getElementById('field-party');
 const fieldFreteEl = document.getElementById('field-frete');
+const fieldDescontoWrap = document.getElementById('field-desconto-wrap');
+const fieldDescontoEl = document.getElementById('field-desconto');
 const fieldTotalEl = document.getElementById('field-total');
 const fieldVendedorWrap = document.getElementById('field-vendedor-wrap');
 const fieldVendedorEl = document.getElementById('field-vendedor');
@@ -129,13 +131,22 @@ function renderNote(type, nf, items) {
   const first = items[0];
   const party = type === 'purchase' ? first.supplier : first.customer;
   const totalFreight = round2(items.reduce((sum, m) => sum + (m.freightShare || 0), 0));
+  const totalDiscount = round2(items.reduce((sum, m) => sum + (m.discountShare || 0), 0));
   const totalValue = round2(items.reduce((sum, m) => sum + (m.totalPrice || 0), 0));
+  const hasDiscount = items.some((m) => m.discountShare != null && m.discountShare !== 0);
 
   fieldNfEl.textContent = nf;
   fieldDataEl.textContent = first.invoiceDate ? dateFormatter.format(new Date(first.invoiceDate)) : '-';
   fieldPartyEl.textContent = party && party.name ? party.name : '-';
   fieldFreteEl.textContent = currency.format(totalFreight);
-  fieldTotalEl.textContent = currency.format(round2(totalValue + totalFreight));
+
+  // Desconto so existe em notas de venda lancadas depois desta
+  // funcionalidade existir - some da tela quando nao ha valor (nota de
+  // compra, ou nota de venda antiga).
+  fieldDescontoWrap.hidden = !hasDiscount;
+  if (hasDiscount) fieldDescontoEl.textContent = currency.format(totalDiscount);
+
+  fieldTotalEl.textContent = currency.format(round2(totalValue + totalFreight - totalDiscount));
 
   // Vendedor/comissao so existem em notas de venda (campos novos no cabecalho
   // da tela "Nota de venda") - uma nota de compra nunca tem esses campos, e
@@ -162,6 +173,7 @@ function renderNote(type, nf, items) {
         <td>${m.quantity}</td>
         <td>${currency.format(m.totalPrice)}</td>
         <td>${currency.format(m.freightShare || 0)}</td>
+        <td>${currency.format(m.discountShare || 0)}</td>
       </tr>
     `)
     .join('');
