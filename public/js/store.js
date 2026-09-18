@@ -11,10 +11,22 @@
   const modalContent = document.getElementById('modal-content');
   const modalClose = document.getElementById('modal-close');
 
+  const cartToggle = document.getElementById('cart-toggle');
+  const cartCount = document.getElementById('cart-count');
+  const cartModal = document.getElementById('cart-modal');
+  const cartModalClose = document.getElementById('cart-modal-close');
+  const cartItemsEl = document.getElementById('cart-items');
+  const cartEmptyState = document.getElementById('cart-empty-state');
+  const cartSummary = document.getElementById('cart-summary');
+  const cartTotalValue = document.getElementById('cart-total-value');
+  const cartCheckoutBtn = document.getElementById('cart-checkout');
+  const cartClearBtn = document.getElementById('cart-clear');
+  const toastEl = document.getElementById('toast');
+
   document.getElementById('year').textContent = new Date().getFullYear();
 
-  // Numero (com DDI 55 + DDD) para onde o botao "Comprar" envia a mensagem
-  // pelo WhatsApp. Formato exigido pelo link wa.me: apenas digitos.
+  // Numero (com DDI 55 + DDD) para onde o pedido do carrinho e enviado pelo
+  // WhatsApp. Formato exigido pelo link wa.me: apenas digitos.
   const WHATSAPP_NUMBER = '5534996575057';
 
   let state = {
@@ -28,9 +40,19 @@
   };
 
   let searchDebounce = null;
+  let toastTimeout = null;
 
   function formatBRL(value) {
     return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  }
+
+  function showToast(message) {
+    toastEl.textContent = message;
+    toastEl.classList.add('visible');
+    clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => {
+      toastEl.classList.remove('visible');
+    }, 2200);
   }
 
   // -------------------- Cores conhecidas -> amostra visual --------------------
@@ -87,7 +109,7 @@
     return String(name || '')
       .toLowerCase()
       .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[̀-ͯ]/g, '')
       .trim();
   }
 
@@ -259,17 +281,144 @@
     return (itemCode && String(itemCode).trim()) || product.code;
   }
 
-  function buildWhatsAppUrl(product, variant, size) {
-    const lines = [
-      'Ola! Tenho interesse neste produto da AVSTORE:',
-      `${product.description} (Codigo: ${resolveItemCode(product, variant, size)})`,
-      `Cor: ${variant.color}`,
-      `Tamanho: ${size}`,
-      `Valor: ${formatBRL(product.price)}`,
-    ];
+  // -------------------- Carrinho de compras --------------------
+  // Clicar em "Comprar" nao abre mais o WhatsApp na hora: adiciona a
+  // variacao escolhida (cor/tamanho) ao carrinho, que fica acumulando ate o
+  // cliente clicar em "Finalizar pedido pelo WhatsApp" no carrinho. Nesse
+  // momento todos os itens viram uma unica mensagem, no mesmo formato que
+  // ja era usado no botao "Comprar" direto (produto, codigo, cor, tamanho,
+  // valor), so que listando cada item do pedido.
+  function addToCart(product, variant, size) {
+    if (!size) {
+      showToast('Selecione um tamanho antes de comprar.');
+      return;
+    }
+    Cart.addItem({
+      code: resolveItemCode(product, variant, size),
+      description: product.description,
+      color: variant.color,
+      size,
+      price: product.price,
+      imageUrl: variant.imageUrl,
+    });
+    showToast(`${product.description} adicionado ao carrinho.`);
+  }
+
+  function buildWhatsAppOrderUrl(items, total) {
+    const lines = ['Ola! Gostaria de fechar este pedido na AVSTORE:', ''];
+    items.forEach((item, index) => {
+      lines.push(`${index + 1}) ${item.description} (Codigo: ${item.code})`);
+      lines.push(`Cor: ${item.color} | Tamanho: ${item.size} | Qtd: ${item.qty}`);
+      lines.push(`Valor unitario: ${formatBRL(item.price)}`);
+      lines.push('');
+    });
+    lines.push(`Total do pedido: ${formatBRL(total)}`);
     const text = encodeURIComponent(lines.join('\n'));
     return `https://wa.me/${WHATSAPP_NUMBER}?text=${text}`;
   }
+
+  function updateCartBadge() {
+    const count = Cart.getCount();
+    cartCount.textContent = String(count);
+    cartCount.hidden = count === 0;
+  }
+
+  function renderCart() {
+    const items = Cart.getItems();
+    cartItemsEl.innerHTML = '';
+
+    if (items.length === 0) {
+      cartEmptyState.hidden = false;
+      cartSummary.hidden = true;
+      return;
+    }
+
+    cartEmptyState.hidden = true;
+    cartSummary.hidden = false;
+
+    items.forEach((item) => {
+      const key = Cart.keyFor(item);
+      const row = document.createElement('div');
+      row.className = 'cart-item';
+      row.dataset.key = key;
+      row.innerHTML = `
+        <img src="${item.imageUrl || '/img/sem-imagem.gif'}" alt="" class="cart-item-thumb" />
+        <div class="cart-item-info">
+          <strong>${escapeHtml(item.description)}</strong>
+          <span class="cart-item-meta">Cor: ${escapeHtml(item.color)} · Tamanho: ${escapeHtml(item.size)} · Cod: ${escapeHtml(item.code)}</span>
+          <span class="cart-item-price">${formatBRL(item.price)}</span>
+        </div>
+        <div class="cart-item-actions">
+          <div class="qty-stepper">
+            <button type="button" class="icon-btn" data-action="qty-dec" aria-label="Diminuir quantidade">−</button>
+            <span class="qty-value">${item.qty}</span>
+            <button type="button" class="icon-btn" data-action="qty-inc" aria-label="Aumentar quantidade">+</button>
+          </div>
+          <button type="button" class="icon-btn cart-remove" data-action="remove" aria-label="Remover item">✕</button>
+        </div>
+      `;
+      cartItemsEl.appendChild(row);
+    });
+
+    cartTotalValue.textContent = formatBRL(Cart.getTotal());
+  }
+
+  function openCartModal() {
+    renderCart();
+    cartModal.hidden = false;
+  }
+
+  function closeCartModal() {
+    cartModal.hidden = true;
+  }
+
+  cartToggle.addEventListener('click', openCartModal);
+  cartModalClose.addEventListener('click', closeCartModal);
+  cartModal.addEventListener('click', (e) => {
+    if (e.target === cartModal) closeCartModal();
+  });
+
+  cartItemsEl.addEventListener('click', (e) => {
+    const row = e.target.closest('.cart-item');
+    if (!row) return;
+    const key = row.dataset.key;
+    const items = Cart.getItems();
+    const item = items.find((i) => Cart.keyFor(i) === key);
+    if (!item) return;
+
+    if (e.target.closest('[data-action="qty-inc"]')) {
+      Cart.setQty(key, item.qty + 1);
+      renderCart();
+    } else if (e.target.closest('[data-action="qty-dec"]')) {
+      Cart.setQty(key, item.qty - 1);
+      renderCart();
+    } else if (e.target.closest('[data-action="remove"]')) {
+      Cart.removeItem(key);
+      renderCart();
+    }
+  });
+
+  cartClearBtn.addEventListener('click', () => {
+    Cart.clear();
+    renderCart();
+  });
+
+  cartCheckoutBtn.addEventListener('click', () => {
+    const items = Cart.getItems();
+    if (items.length === 0) {
+      showToast('Seu carrinho esta vazio.');
+      return;
+    }
+    const total = Cart.getTotal();
+    window.open(buildWhatsAppOrderUrl(items, total), '_blank', 'noopener');
+    Cart.clear();
+    renderCart();
+    closeCartModal();
+    showToast('Pedido enviado! Confira o WhatsApp para finalizar.');
+  });
+
+  Cart.onChange(updateCartBadge);
+  updateCartBadge();
 
   function renderProductCard(product) {
     const variants = Array.isArray(product.variants) && product.variants.length ? product.variants : [
@@ -325,7 +474,7 @@
       e.stopPropagation();
       const variant = variants[selectedIndex];
       const size = sizeSelectEl.value || variant.sizes[0] || '';
-      window.open(buildWhatsAppUrl(product, variant, size), '_blank', 'noopener');
+      addToCart(product, variant, size);
     });
 
     return card;
@@ -422,7 +571,7 @@
     modalContent.querySelector('[data-action="buy-modal"]').addEventListener('click', () => {
       const variant = variants[selectedIndex];
       const size = sizeSelectEl.value || variant.sizes[0] || '';
-      window.open(buildWhatsAppUrl(product, variant, size), '_blank', 'noopener');
+      addToCart(product, variant, size);
     });
 
     modal.hidden = false;

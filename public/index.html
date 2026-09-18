@@ -12,6 +12,10 @@
   <header class="site-header">
     <div class="container header-inner">
       <a href="/" class="logo"><img src="/img/logo.png" alt="AVSTORE" class="logo-img" /></a>
+      <button id="cart-toggle" class="icon-btn cart-toggle" aria-label="Ver carrinho de compras">
+        🛒
+        <span id="cart-count" class="cart-badge" hidden>0</span>
+      </button>
     </div>
   </header>
 
@@ -51,6 +55,28 @@
     </div>
   </div>
 
+  <!-- Modal do carrinho de compras -->
+  <div id="cart-modal" class="modal-overlay" hidden>
+    <div class="modal cart-modal-inner" role="dialog" aria-modal="true" aria-label="Carrinho de compras">
+      <button id="cart-modal-close" class="icon-btn modal-close" aria-label="Fechar">✕</button>
+      <h2 class="cart-title">Meu carrinho</h2>
+
+      <div id="cart-items" class="cart-items"></div>
+      <p id="cart-empty-state" class="empty-state" hidden>Seu carrinho esta vazio.</p>
+
+      <div id="cart-summary" class="cart-summary" hidden>
+        <div class="cart-total-row">
+          <span>Total</span>
+          <strong id="cart-total-value"></strong>
+        </div>
+        <button id="cart-checkout" class="btn btn-primary btn-block">Finalizar pedido pelo WhatsApp</button>
+        <button id="cart-clear" class="btn btn-ghost btn-block">Esvaziar carrinho</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
   <footer class="site-footer">
     <div class="container">
       <p>&copy; <span id="year"></span> AVSTORE. Todos os direitos reservados.</p>
@@ -58,6 +84,7 @@
     </div>
   </footer>
 
+  <script src="/js/cart.js"></script>
   <script src="/js/store.js"></script>
 </body>
 </html>
