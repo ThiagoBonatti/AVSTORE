@@ -42,6 +42,100 @@
   let searchDebounce = null;
   let toastTimeout = null;
 
+  // -------------------- Agrupamento de produtos iguais --------------------
+  // No catalogo, varias pecas foram cadastradas como produtos separados (um
+  // codigo por cor/tamanho) com exatamente a mesma descricao. Na vitrine elas
+  // viram UM unico card: as cores viram as bolinhas de cor e os tamanhos
+  // entram todos no mesmo seletor. Cada tamanho guarda o codigo do produto de
+  // origem, entao o carrinho/WhatsApp continuam recebendo o codigo certo.
+  // O agrupamento e so visual (feito aqui no navegador) - nada muda no banco,
+  // no estoque ou nas notas do admin.
+  //
+  // Chave do grupo: descricao + categoria + preco (normalizados). Pecas com
+  // mesma descricao mas preco diferente continuam em cards separados, para
+  // nunca exibir um preco errado.
+  const groups = new Map(); // chave -> { product, render }
+
+  function groupKeyFor(product) {
+    const norm = (s) => normalizeColorKey(s).replace(/\s+/g, ' ');
+    return [norm(product.description), norm(product.category), Number(product.price || 0).toFixed(2)].join('|');
+  }
+
+  // Ordem "natural" de tamanhos de roupa; numericos em ordem crescente e
+  // qualquer outro tamanho desconhecido vai para o fim, na ordem em que chegou.
+  const SIZE_ORDER = ['RN', 'PP', 'XP', 'P', 'M', 'G', 'GG', 'XG', 'XGG', 'EG', 'EGG', 'G1', 'G2', 'G3', 'G4', 'U', 'UN', 'UNICO'];
+  function sizeRank(size) {
+    const key = normalizeColorKey(size).toUpperCase();
+    const idx = SIZE_ORDER.indexOf(key);
+    if (idx >= 0) return idx;
+    const num = Number(String(size).replace(',', '.'));
+    if (Number.isFinite(num)) return 100 + num;
+    return 10000;
+  }
+  function sortSizes(sizes) {
+    return sizes
+      .map((s, i) => ({ s, i }))
+      .sort((a, b) => sizeRank(a.s) - sizeRank(b.s) || a.i - b.i)
+      .map((x) => x.s);
+  }
+
+  // Converte o produto vindo da API em variacoes que lembram, por tamanho,
+  // de qual produto (codigo) aquele tamanho veio.
+  function variantsWithOrigin(product) {
+    const base = Array.isArray(product.variants) && product.variants.length
+      ? product.variants
+      : [{ color: '', sizes: [], imageUrl: product.imageUrl }];
+    return base.map((v) => {
+      const sizes = Array.isArray(v.sizes) ? v.sizes : [];
+      return {
+        color: v.color || '',
+        sizes: sizes.slice(),
+        itemCodes: Object.assign({}, v.itemCodes || {}),
+        productCodes: Object.fromEntries(sizes.map((s) => [s, product.code])),
+        imageUrl: v.imageUrl || null,
+      };
+    });
+  }
+
+  // Junta as variacoes de "incoming" dentro de "target" (mesma cor = mesma
+  // bolinha, somando os tamanhos). Um tamanho que ja existe na cor mantem o
+  // codigo que chegou primeiro.
+  function mergeVariantsInto(target, incoming) {
+    incoming.forEach((inc) => {
+      const colorKey = normalizeColorKey(inc.color);
+      let existing = target.find((t) => normalizeColorKey(t.color) === colorKey);
+      if (!existing) {
+        existing = { color: inc.color, sizes: [], itemCodes: {}, productCodes: {}, imageUrl: null };
+        target.push(existing);
+      }
+      if (!existing.imageUrl && inc.imageUrl) existing.imageUrl = inc.imageUrl;
+      inc.sizes.forEach((s) => {
+        if (existing.sizes.includes(s)) return;
+        existing.sizes.push(s);
+        if (inc.itemCodes[s]) existing.itemCodes[s] = inc.itemCodes[s];
+        existing.productCodes[s] = inc.productCodes[s];
+      });
+      existing.sizes = sortSizes(existing.sizes);
+    });
+  }
+
+  // Recebe um produto da API: se ja existe um card do mesmo grupo, soma as
+  // cores/tamanhos nele e redesenha; senao cria um card novo.
+  function addProductToGrid(product) {
+    const key = groupKeyFor(product);
+    const existing = groups.get(key);
+    if (existing) {
+      mergeVariantsInto(existing.product.variants, variantsWithOrigin(product));
+      existing.render();
+      return;
+    }
+    const grouped = Object.assign({}, product, { variants: [] });
+    mergeVariantsInto(grouped.variants, variantsWithOrigin(product));
+    const { card, render } = renderProductCard(grouped);
+    groups.set(key, { product: grouped, render });
+    grid.appendChild(card);
+  }
+
   function formatBRL(value) {
     return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   }
@@ -202,6 +296,7 @@
       state.cursor = null;
       state.hasMore = true;
       grid.innerHTML = '';
+      groups.clear();
     }
 
     const params = new URLSearchParams({
@@ -216,7 +311,7 @@
       const res = await fetch(`/api/products?${params.toString()}`);
       const data = await res.json();
 
-      data.items.forEach((product) => grid.appendChild(renderProductCard(product)));
+      data.items.forEach(addProductToGrid);
 
       state.hasMore = data.hasMore;
       state.cursor = data.nextCursor;
@@ -228,6 +323,19 @@
       state.loading = false;
       loadingState.hidden = true;
     }
+
+    // Como varios produtos podem virar um unico card, um lote pode render
+    // bem menos cards que o esperado e o "sentinel" continuar visivel - e o
+    // IntersectionObserver nao dispara de novo sozinho nesse caso. Entao, se
+    // ainda ha mais produtos e o fim da lista esta na tela, carrega o proximo.
+    if (state.hasMore && isSentinelVisible()) {
+      setTimeout(() => loadProducts(), 0);
+    }
+  }
+
+  function isSentinelVisible() {
+    const rect = sentinel.getBoundingClientRect();
+    return rect.top < window.innerHeight + 200;
   }
 
   // -------------------- Amostras de cor + selecao de tamanho --------------------
@@ -239,17 +347,20 @@
     if (variants.length <= 1) return; // uma unica cor nao precisa de seletor
 
     variants.forEach((v, index) => {
-      const hex = colorToHex(v.color);
+      // Em um card agrupado pode haver uma variacao sem cor cadastrada ao
+      // lado de outras com cor - ela aparece como "Padrao" em vez de vazia.
+      const colorName = v.color || 'Padrao';
+      const hex = colorToHex(colorName);
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'color-swatch' + (hex ? '' : ' color-swatch-text') + (index === selectedIndex ? ' selected' : '');
-      btn.title = v.color;
-      btn.setAttribute('aria-label', `Cor ${v.color}`);
+      btn.title = colorName;
+      btn.setAttribute('aria-label', `Cor ${colorName}`);
       if (hex) {
         btn.style.background = hex;
         if (isLightColor(hex)) btn.classList.add('color-swatch-light');
       } else {
-        btn.textContent = v.color.slice(0, 2).toUpperCase();
+        btn.textContent = colorName.slice(0, 2).toUpperCase();
       }
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -257,6 +368,15 @@
       });
       container.appendChild(btn);
     });
+  }
+
+  // Mostra o nome da cor escolhida (ex.: "Cor: Marrom Cafe") ao lado das
+  // bolinhas - so as bolinhas nao deixam claro o nome da cor. Fica oculto
+  // quando o produto nao tem cor cadastrada.
+  function updateColorName(el, variant) {
+    const name = variant && variant.color ? variant.color : '';
+    el.hidden = !name;
+    el.innerHTML = name ? `Cor: <strong>${escapeHtml(name)}</strong>` : '';
   }
 
   function fillSizeSelect(select, sizes, selected) {
@@ -276,9 +396,12 @@
   // admin) - nao o codigo generico do produto. Produtos antigos ou
   // combinacoes sem codigo de item cadastrado caem no codigo do produto,
   // para o campo nunca ficar em branco.
+  // Em um card agrupado, cada tamanho pode ter vindo de um produto diferente
+  // (variant.productCodes), que e usado quando nao ha codigo de item.
   function resolveItemCode(product, variant, size) {
     const itemCode = variant && variant.itemCodes && size ? variant.itemCodes[size] : null;
-    return (itemCode && String(itemCode).trim()) || product.code;
+    const originCode = variant && variant.productCodes && size ? variant.productCodes[size] : null;
+    return (itemCode && String(itemCode).trim()) || originCode || product.code;
   }
 
   // -------------------- Carrinho de compras --------------------
@@ -437,6 +560,7 @@
         </div>
         <h3>${escapeHtml(product.description)}</h3>
         <div class="color-swatches" data-field="swatches"></div>
+        <div class="color-name" data-field="color-name" hidden></div>
         <label class="size-select-label">
           Tamanho
           <select class="size-select" data-field="size-select"></select>
@@ -451,6 +575,7 @@
     const imageEl = card.querySelector('[data-field="image"]');
     const swatchesEl = card.querySelector('[data-field="swatches"]');
     const sizeSelectEl = card.querySelector('[data-field="size-select"]');
+    const colorNameEl = card.querySelector('[data-field="color-name"]');
 
     function selectVariant(index) {
       selectedIndex = index;
@@ -458,10 +583,22 @@
       imageEl.src = v.imageUrl || '/img/sem-imagem.gif';
       fillSizeSelect(sizeSelectEl, v.sizes, v.sizes[0]);
       renderSwatches(swatchesEl, variants, selectedIndex, selectVariant);
+      updateColorName(colorNameEl, v);
     }
 
-    fillSizeSelect(sizeSelectEl, variants[0].sizes, variants[0].sizes[0]);
-    renderSwatches(swatchesEl, variants, selectedIndex, selectVariant);
+    // Redesenha o card quando outro produto do mesmo grupo e somado a ele
+    // (novas cores/tamanhos), mantendo a cor e o tamanho que o cliente ja
+    // tinha escolhido.
+    function render() {
+      const v = variants[selectedIndex] || variants[0];
+      const currentSize = sizeSelectEl.value;
+      imageEl.src = v.imageUrl || '/img/sem-imagem.gif';
+      fillSizeSelect(sizeSelectEl, v.sizes, currentSize || v.sizes[0]);
+      renderSwatches(swatchesEl, variants, selectedIndex, selectVariant);
+      updateColorName(colorNameEl, v);
+    }
+
+    render();
 
     card.addEventListener('click', (e) => {
       if (e.target.closest('[data-action="buy"]') || e.target.closest('.color-swatch') || e.target.closest('.size-select')) {
@@ -477,7 +614,7 @@
       addToCart(product, variant, size);
     });
 
-    return card;
+    return { card, render };
   }
 
   function escapeHtml(str) {
@@ -522,7 +659,9 @@
     let selectedIndex = 0;
 
     modalContent.innerHTML = `
-      <img data-field="image" src="${variants[0].imageUrl || '/img/sem-imagem.gif'}" alt="${escapeHtml(product.description)}" />
+      <div class="modal-image">
+        <img data-field="image" src="${variants[0].imageUrl || '/img/sem-imagem.gif'}" alt="${escapeHtml(product.description)}" />
+      </div>
       <div class="modal-info">
         <h2>${escapeHtml(product.description)}</h2>
         <span class="modal-price">${formatBRL(product.price)}</span>
@@ -530,6 +669,7 @@
           <span>Codigo: <span data-field="codigo"></span></span>
           <span>Categoria: ${escapeHtml(product.category)}</span>
         </div>
+        <div class="color-name" data-field="color-name" hidden></div>
         <div class="color-swatches" data-field="swatches"></div>
         <label class="size-select-label">
           Tamanho
@@ -543,6 +683,7 @@
     const swatchesEl = modalContent.querySelector('[data-field="swatches"]');
     const sizeSelectEl = modalContent.querySelector('[data-field="size-select"]');
     const codigoEl = modalContent.querySelector('[data-field="codigo"]');
+    const colorNameEl = modalContent.querySelector('[data-field="color-name"]');
 
     // Mostra o codigo do item cadastrado para a cor/tamanho escolhidos (o
     // mesmo que aparece em Produtos Cadastrados no admin) - atualiza sempre
@@ -560,11 +701,13 @@
       imageEl.src = v.imageUrl || '/img/sem-imagem.gif';
       fillSizeSelect(sizeSelectEl, v.sizes, v.sizes[0]);
       renderSwatches(swatchesEl, variants, selectedIndex, selectVariant);
+      updateColorName(colorNameEl, v);
       updateCodigo();
     }
 
     fillSizeSelect(sizeSelectEl, variants[0].sizes, variants[0].sizes[0]);
     renderSwatches(swatchesEl, variants, selectedIndex, selectVariant);
+    updateColorName(colorNameEl, variants[0]);
     updateCodigo();
     sizeSelectEl.addEventListener('change', updateCodigo);
 

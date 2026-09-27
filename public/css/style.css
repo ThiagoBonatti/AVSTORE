@@ -317,6 +317,37 @@ select:focus, input:focus {
 .modal-meta { display: flex; gap: 10px; flex-wrap: wrap; font-size: 0.85rem; color: var(--color-text-muted); }
 .modal-meta span { background: var(--color-bg); padding: 4px 10px; border-radius: 999px; }
 
+/* Modal de produto ampliado: janela mais larga e foto grande, mostrada
+   inteira (sem cortar) em formato retrato, como as fotos das pecas. */
+#product-modal .modal { max-width: 1040px; padding: 28px; }
+#product-modal .modal-content { flex-wrap: nowrap; gap: 32px; align-items: flex-start; }
+#product-modal .modal-image {
+  flex: 0 0 55%;
+  background: var(--color-bg);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+#product-modal .modal-image img {
+  width: 100%; height: auto; max-height: 78vh;
+  aspect-ratio: 3 / 4; object-fit: contain; border-radius: 10px;
+}
+#product-modal .modal-info { gap: 14px; padding-top: 8px; }
+#product-modal .modal-info h2 { font-size: 1.6rem; line-height: 1.25; padding-right: 28px; }
+#product-modal .modal-price { font-size: 1.7rem; }
+#product-modal .color-swatch { width: 32px; height: 32px; }
+#product-modal .size-select { padding: 10px 12px; font-size: 0.95rem; }
+#product-modal .btn { padding: 14px; font-size: 1rem; }
+#product-modal .modal-close {
+  z-index: 2; width: 36px; height: 36px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+/* Nome da cor escolhida, junto das bolinhas de cor (card e modal) */
+.color-name { font-size: 0.8rem; color: var(--color-text-muted); }
+.color-name strong { color: var(--color-text); font-weight: 600; }
+#product-modal .color-name { font-size: 0.95rem; }
+
 /* Modal do carrinho */
 .cart-modal-inner {
   max-width: 480px;
@@ -459,6 +490,11 @@ select:focus, input:focus {
   .product-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
   .modal-content { flex-direction: column; }
   .modal-content img { width: 100%; }
+  #product-modal .modal { padding: 18px; }
+  #product-modal .modal-content { flex-wrap: wrap; gap: 18px; }
+  #product-modal .modal-image { flex: 1 1 100%; width: 100%; }
+  #product-modal .modal-image img { max-height: 60vh; }
+  #product-modal .modal-info h2 { font-size: 1.3rem; }
   .cart-item { grid-template-columns: 48px 1fr; }
   .cart-item-actions { grid-column: 1 / -1; flex-direction: row; justify-content: space-between; }
 }
