@@ -21,6 +21,73 @@ function variantImageFieldName(variantId) {
   return `variantImage_${variantId}`;
 }
 
+// -------------------- Varias fotos por cor --------------------
+// Cada cor guarda uma lista ordenada de fotos em "images" ([{url, path}]).
+// A primeira e a foto principal (card da loja, carrinho, tabela do admin) e
+// continua espelhada em "imageUrl"/"imagePath", para que todo o codigo que
+// ja lia esses campos (estoque, notas, importacao) siga funcionando.
+//
+// O formulario envia as fotos novas no campo "variantImages_<id>" (varios
+// arquivos) e, dentro do JSON de cada variacao, "imageOrder": a ordem final
+// das fotos, com "e:<url>" para uma foto ja existente que deve ser mantida
+// e "n:<i>" para a i-esima foto nova enviada. Foto existente que nao aparece
+// em imageOrder e removida. O campo antigo "variantImage_<id>" (um arquivo)
+// continua aceito, como mais uma foto nova.
+const MAX_IMAGES_PER_VARIANT = 8;
+
+function variantImagesFieldName(variantId) {
+  return `variantImages_${variantId}`;
+}
+
+// Fotos atuais de uma variacao salva no banco, inclusive de produtos antigos
+// que so tinham imageUrl/imagePath (vira uma lista de 1 foto).
+function storedImages(v) {
+  if (!v) return [];
+  if (Array.isArray(v.images) && v.images.length) {
+    return v.images.filter((img) => img && img.url).map((img) => ({ url: img.url, path: img.path || null }));
+  }
+  return v.imageUrl ? [{ url: v.imageUrl, path: v.imagePath || null }] : [];
+}
+
+function newFilesForVariant(filesByField, variantId) {
+  return [
+    ...(filesByField.get(variantImagesFieldName(variantId)) || []),
+    ...(filesByField.get(variantImageFieldName(variantId)) || []),
+  ];
+}
+
+// Monta a lista final de fotos de uma variacao a partir das fotos que ja
+// existiam, das fotos novas (ja enviadas ao Storage) e da ordem pedida.
+function buildFinalImages(prevImages, uploadedNew, imageOrder) {
+  if (!Array.isArray(imageOrder)) return [...prevImages, ...uploadedNew];
+  const prevByUrl = new Map(prevImages.map((img) => [img.url, img]));
+  const used = new Set();
+  const result = [];
+  for (const entry of imageOrder) {
+    let img = null;
+    if (entry.startsWith('e:')) img = prevByUrl.get(entry.slice(2)) || null;
+    else if (entry.startsWith('n:')) img = uploadedNew[Number(entry.slice(2))] || null;
+    if (img && !used.has(img)) {
+      used.add(img);
+      result.push(img);
+    }
+  }
+  // Foto nova enviada mas esquecida na ordem: entra no fim, nunca se perde.
+  uploadedNew.forEach((img) => {
+    if (!used.has(img)) result.push(img);
+  });
+  return result;
+}
+
+function withMainImage(variant, images) {
+  return {
+    ...variant,
+    images,
+    imageUrl: images[0] ? images[0].url : null,
+    imagePath: images[0] ? images[0].path : null,
+  };
+}
+
 function serializeProduct(doc) {
   const data = doc.data() || {};
   const variants = Array.isArray(data.variants) ? data.variants : [];
@@ -35,6 +102,8 @@ function serializeProduct(doc) {
       sizes: Array.isArray(v.sizes) ? v.sizes : [],
       itemCodes: v.itemCodes && typeof v.itemCodes === 'object' ? v.itemCodes : {},
       imageUrl: v.imageUrl || null,
+      // So as URLs vao para o navegador (o caminho no Storage fica no servidor).
+      images: storedImages(v).map((img) => img.url),
     })),
     colors: Array.isArray(data.colors) ? data.colors : [],
     sizes: Array.isArray(data.sizes) ? data.sizes : [],
@@ -138,15 +207,32 @@ function parseVariants(raw) {
       }
     }
 
-    variants.push({ id, color, sizes, itemCodes });
+    // Ordem das fotos (ver buildFinalImages). Opcional: sem ela, as fotos
+    // existentes sao mantidas e as novas entram no fim.
+    let imageOrder;
+    if (Array.isArray(raw_v.imageOrder)) {
+      imageOrder = raw_v.imageOrder
+        .map((e) => String(e || ''))
+        .filter((e) => /^e:.+/.test(e) || /^n:\d+$/.test(e));
+      if (imageOrder.length > MAX_IMAGES_PER_VARIANT) {
+        throw new Error(`A cor "${color}" pode ter no maximo ${MAX_IMAGES_PER_VARIANT} fotos.`);
+      }
+    }
+
+    variants.push({ id, color, sizes, itemCodes, imageOrder });
   }
 
   return variants;
 }
 
+// Agrupa os arquivos enviados pelo nome do campo (um campo pode trazer
+// varios arquivos - varias fotos da mesma cor).
 function filesByFieldName(files) {
   const map = new Map();
-  for (const file of files || []) map.set(file.fieldname, file);
+  for (const file of files || []) {
+    if (!map.has(file.fieldname)) map.set(file.fieldname, []);
+    map.get(file.fieldname).push(file);
+  }
   return map;
 }
 
@@ -280,8 +366,11 @@ router.post('/', requireAuth, upload.any(), async (req, res) => {
   if (variants) {
     const filesMap = filesByFieldName(req.files);
     for (const v of variants) {
-      if (!filesMap.has(variantImageFieldName(v.id))) {
-        errors.push(`Envie uma imagem para a cor "${v.color}".`);
+      const count = newFilesForVariant(filesMap, v.id).length;
+      if (count === 0) {
+        errors.push(`Envie ao menos uma foto para a cor "${v.color}".`);
+      } else if (count > MAX_IMAGES_PER_VARIANT) {
+        errors.push(`A cor "${v.color}" pode ter no maximo ${MAX_IMAGES_PER_VARIANT} fotos.`);
       }
     }
   }
@@ -297,17 +386,26 @@ router.post('/', requireAuth, upload.any(), async (req, res) => {
   const uploaded = [];
 
   try {
-    for (const v of variants) {
-      const file = filesMap.get(variantImageFieldName(v.id));
-      const { url, storagePath } = await uploadProductImage(code, v.id, file);
-      uploaded.push({ storagePath });
-      v.imageUrl = url;
-      v.imagePath = storagePath;
-      // Estoque (e custo medio) de um produto novo comeca zerado em todos os
-      // tamanhos; as quantidades e custos sao lancados depois pela tela de
-      // compras (mini ERP, ver server/routes/stock.js).
-      v.stock = Object.fromEntries(v.sizes.map((s) => [s, 0]));
-      v.avgCost = Object.fromEntries(v.sizes.map((s) => [s, 0]));
+    for (let i = 0; i < variants.length; i += 1) {
+      const v = variants[i];
+      const newImages = [];
+      for (const file of newFilesForVariant(filesMap, v.id)) {
+        const { url, storagePath } = await uploadProductImage(code, v.id, file);
+        uploaded.push({ storagePath });
+        newImages.push({ url, path: storagePath });
+      }
+      const { imageOrder, ...clean } = v;
+      variants[i] = withMainImage(
+        {
+          ...clean,
+          // Estoque (e custo medio) de um produto novo comeca zerado em todos os
+          // tamanhos; as quantidades e custos sao lancados depois pela tela de
+          // compras (mini ERP, ver server/routes/stock.js).
+          stock: Object.fromEntries(v.sizes.map((s) => [s, 0])),
+          avgCost: Object.fromEntries(v.sizes.map((s) => [s, 0])),
+        },
+        buildFinalImages([], newImages, imageOrder)
+      );
     }
 
     const colors = variants.map((v) => v.color);
@@ -378,11 +476,20 @@ router.put('/:code', requireAuth, upload.any(), async (req, res) => {
     if (variants) {
       const variantsById = new Map(variants.map((v) => [v.id, v]));
 
+      // Cor nova precisa de ao menos uma foto. Cor que ja existia pode ficar
+      // sem foto (ex.: produtos criados pela importacao de planilha, que
+      // nascem sem imagem) - a loja mostra "Sem imagem" nesse caso.
       for (const v of variants) {
-        const hasNewFile = filesMap.has(variantImageFieldName(v.id));
-        const hasExistingImage = existingById.has(v.id);
-        if (!hasNewFile && !hasExistingImage) {
-          errors.push(`Envie uma imagem para a cor "${v.color}".`);
+        const newCount = newFilesForVariant(filesMap, v.id).length;
+        const prev = existingById.get(v.id);
+        if (!prev && newCount === 0) {
+          errors.push(`Envie ao menos uma foto para a cor "${v.color}".`);
+        }
+        const keptCount = Array.isArray(v.imageOrder)
+          ? v.imageOrder.filter((e) => e.startsWith('e:')).length
+          : storedImages(prev).length;
+        if (keptCount + newCount > MAX_IMAGES_PER_VARIANT) {
+          errors.push(`A cor "${v.color}" pode ter no maximo ${MAX_IMAGES_PER_VARIANT} fotos.`);
         }
       }
 
@@ -436,32 +543,27 @@ router.put('/:code', requireAuth, upload.any(), async (req, res) => {
         const stock = Object.fromEntries(v.sizes.map((s) => [s, Number(prevStock[s] || 0)]));
         const avgCost = Object.fromEntries(v.sizes.map((s) => [s, Number(prevAvgCost[s] || 0)]));
 
-        const file = filesMap.get(variantImageFieldName(v.id));
-        if (file) {
+        const newImages = [];
+        for (const file of newFilesForVariant(filesMap, v.id)) {
           const { url, storagePath } = await uploadProductImage(code, v.id, file);
           uploaded.push({ storagePath });
-          finalVariants.push({
-            id: v.id,
-            color: v.color,
-            sizes: v.sizes,
-            itemCodes: v.itemCodes || {},
-            imageUrl: url,
-            imagePath: storagePath,
-            stock,
-            avgCost,
-          });
-        } else {
-          finalVariants.push({
-            id: v.id,
-            color: v.color,
-            sizes: v.sizes,
-            itemCodes: v.itemCodes || {},
-            imageUrl: prev.imageUrl,
-            imagePath: prev.imagePath,
-            stock,
-            avgCost,
-          });
+          newImages.push({ url, path: storagePath });
         }
+        const images = buildFinalImages(storedImages(prev), newImages, v.imageOrder);
+
+        finalVariants.push(
+          withMainImage(
+            {
+              id: v.id,
+              color: v.color,
+              sizes: v.sizes,
+              itemCodes: v.itemCodes || {},
+              stock,
+              avgCost,
+            },
+            images
+          )
+        );
       }
     }
 
@@ -493,16 +595,13 @@ router.put('/:code', requireAuth, upload.any(), async (req, res) => {
     // Remove do Storage as imagens de variacoes que existiam antes e nao
     // estao mais na lista enviada (cor removida do produto), ou que foram
     // substituidas por uma imagem nova.
+    // (Qualquer foto antiga que nao esta em nenhuma cor da lista final.)
     if (finalVariants.length) {
-      const finalById = new Map(finalVariants.map((v) => [v.id, v]));
-      const toDelete = [];
-      for (const prev of existingVariants) {
-        const current = finalById.get(prev.id);
-        if (!current || current.imagePath !== prev.imagePath) {
-          if (prev.imagePath) toDelete.push(prev.imagePath);
-        }
-      }
-      await Promise.all(toDelete.map((p) => deleteProductImage(p)));
+      const stillUsed = new Set(finalVariants.flatMap((v) => v.images.map((img) => img.path)).filter(Boolean));
+      const toDelete = existingVariants
+        .flatMap((prev) => storedImages(prev).map((img) => img.path))
+        .filter((p) => p && !stillUsed.has(p));
+      await Promise.all([...new Set(toDelete)].map((p) => deleteProductImage(p)));
     }
 
     await updateFiltersMeta(category, colors);
@@ -534,7 +633,8 @@ router.delete('/:code', requireAuth, async (req, res) => {
     }
 
     await docRef.delete();
-    await Promise.all(variants.map((v) => deleteProductImage(v.imagePath)));
+    const paths = variants.flatMap((v) => storedImages(v).map((img) => img.path)).filter(Boolean);
+    await Promise.all([...new Set(paths)].map((p) => deleteProductImage(p)));
 
     res.json({ ok: true });
   } catch (err) {

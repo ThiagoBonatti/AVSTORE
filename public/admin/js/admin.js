@@ -229,7 +229,47 @@ if (!form) {
     });
   }
 
-  function createVariantRow({ id, color = '', sizes = [], itemCodes = {}, imageUrl = null } = {}) {
+  // -------------------- Varias fotos por cor --------------------
+  // Cada linha de cor guarda sua lista de fotos em row._images, na ordem em
+  // que vao aparecer na loja (a primeira e a principal). Cada item e:
+  //   { kind: 'existing', url }        - foto ja salva no servidor
+  //   { kind: 'new', file, url }       - foto escolhida agora (url = previa local)
+  // No envio, "imageOrder" diz ao servidor a ordem final ("e:<url>" para as
+  // existentes, "n:<i>" para a i-esima nova) e fotos existentes que sairam
+  // da lista sao apagadas do Storage.
+  const MAX_IMAGES_PER_VARIANT = 8;
+
+  function renderImageGallery(row) {
+    const gallery = row.querySelector('[data-field="image-gallery"]');
+    gallery.innerHTML = '';
+    row._images.forEach((img, index) => {
+      const thumb = document.createElement('div');
+      thumb.className = 'image-thumb' + (index === 0 ? ' is-main' : '') + (img.kind === 'new' ? ' is-new' : '');
+      thumb.innerHTML = `
+        <img src="${escapeHtml(img.url)}" alt="Foto ${index + 1}" />
+        <button type="button" class="thumb-remove" data-thumb-action="remove" title="Remover foto" aria-label="Remover foto">✕</button>
+        ${index === 0
+          ? '<span class="thumb-badge">Principal</span>'
+          : '<button type="button" class="thumb-make-main" data-thumb-action="main" title="Usar como foto principal">Tornar principal</button>'}
+      `;
+      thumb.querySelector('[data-thumb-action="remove"]').addEventListener('click', () => {
+        const [removed] = row._images.splice(index, 1);
+        if (removed && removed.kind === 'new') URL.revokeObjectURL(removed.url);
+        renderImageGallery(row);
+      });
+      const mainBtn = thumb.querySelector('[data-thumb-action="main"]');
+      if (mainBtn) {
+        mainBtn.addEventListener('click', () => {
+          const [moved] = row._images.splice(index, 1);
+          row._images.unshift(moved);
+          renderImageGallery(row);
+        });
+      }
+      gallery.appendChild(thumb);
+    });
+  }
+
+  function createVariantRow({ id, color = '', sizes = [], itemCodes = {}, imageUrl = null, images = null } = {}) {
     const variantId = id || makeVariantId();
     const fragment = variantRowTemplate.content.cloneNode(true);
     const row = fragment.querySelector('[data-variant-row]');
@@ -238,9 +278,13 @@ if (!form) {
     const colorInput = row.querySelector('[data-field="color"]');
     const sizesInput = row.querySelector('[data-field="sizes"]');
     const imageInput = row.querySelector('[data-field="image"]');
-    const imagePreview = row.querySelector('[data-field="image-preview"]');
-    const imageHint = row.querySelector('[data-field="image-hint"]');
     const removeBtn = row.querySelector('[data-action="remove-variant"]');
+
+    // Cor que ja existe no servidor pode ser salva sem foto (ex.: produtos
+    // vindos da importacao de planilha); cor nova precisa de ao menos uma.
+    row._isExisting = Boolean(id);
+    const existingUrls = Array.isArray(images) && images.length ? images : imageUrl ? [imageUrl] : [];
+    row._images = existingUrls.map((url) => ({ kind: 'existing', url }));
 
     colorInput.value = color;
     sizesInput.value = sizes.join(', ');
@@ -254,19 +298,19 @@ if (!form) {
       renderItemCodesList(row, currentSizes);
     });
 
-    if (imageUrl) {
-      imagePreview.src = imageUrl;
-      imagePreview.style.display = 'block';
-      imageHint.textContent = '(envie apenas se quiser trocar a imagem desta cor)';
-    } else {
-      imageHint.textContent = '(obrigatoria)';
-    }
+    renderImageGallery(row);
 
     imageInput.addEventListener('change', () => {
-      const file = imageInput.files[0];
-      if (!file) return;
-      imagePreview.src = URL.createObjectURL(file);
-      imagePreview.style.display = 'block';
+      const files = Array.from(imageInput.files || []);
+      const room = MAX_IMAGES_PER_VARIANT - row._images.length;
+      if (files.length > room) {
+        showMessage(`Cada cor pode ter no maximo ${MAX_IMAGES_PER_VARIANT} fotos - ${files.length - Math.max(room, 0)} foto(s) nao foram adicionadas.`, 'error');
+      }
+      files.slice(0, Math.max(room, 0)).forEach((file) => {
+        row._images.push({ kind: 'new', file, url: URL.createObjectURL(file) });
+      });
+      imageInput.value = ''; // permite escolher o mesmo arquivo de novo depois
+      renderImageGallery(row);
     });
 
     removeBtn.addEventListener('click', () => {
@@ -304,8 +348,13 @@ if (!form) {
         const val = input.value.trim();
         if (val) itemCodes[input.dataset.size] = val;
       });
-      const file = row.querySelector('[data-field="image"]').files[0] || null;
-      variants.push({ id, color, sizes, itemCodes, file });
+      const newFiles = [];
+      const imageOrder = (row._images || []).map((img) => {
+        if (img.kind === 'existing') return `e:${img.url}`;
+        newFiles.push(img.file);
+        return `n:${newFiles.length - 1}`;
+      });
+      variants.push({ id, color, sizes, itemCodes, imageOrder, newFiles, isExisting: row._isExisting });
     });
     return variants;
   }
@@ -403,8 +452,8 @@ if (!form) {
         showMessage(`Informe ao menos um tamanho para a cor "${v.color}".`, 'error');
         return;
       }
-      if (!isEdit && !v.file) {
-        showMessage(`Envie uma imagem para a cor "${v.color}".`, 'error');
+      if ((!isEdit || !v.isExisting) && v.imageOrder.length === 0) {
+        showMessage(`Envie ao menos uma foto para a cor "${v.color}".`, 'error');
         return;
       }
     }
@@ -416,10 +465,12 @@ if (!form) {
     formData.append('price', priceInput.value);
     formData.append(
       'variants',
-      JSON.stringify(variants.map((v) => ({ id: v.id, color: v.color, sizes: v.sizes, itemCodes: v.itemCodes })))
+      JSON.stringify(
+        variants.map((v) => ({ id: v.id, color: v.color, sizes: v.sizes, itemCodes: v.itemCodes, imageOrder: v.imageOrder }))
+      )
     );
     variants.forEach((v) => {
-      if (v.file) formData.append(`variantImage_${v.id}`, v.file);
+      v.newFiles.forEach((file) => formData.append(`variantImages_${v.id}`, file));
     });
 
     submitBtn.disabled = true;

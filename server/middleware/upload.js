@@ -19,7 +19,9 @@ function fileFilter(req, file, cb) {
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024, files: 20 }, // 5MB por imagem, ate 20 variacoes
+  // 5MB por imagem; ate 60 arquivos por envio (varias fotos por cor - o
+  // limite por cor, 8 fotos, e conferido em server/routes/products.js).
+  limits: { fileSize: 5 * 1024 * 1024, files: 60 },
 });
 
 module.exports = { upload };

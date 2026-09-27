@@ -87,12 +87,16 @@
       : [{ color: '', sizes: [], imageUrl: product.imageUrl }];
     return base.map((v) => {
       const sizes = Array.isArray(v.sizes) ? v.sizes : [];
+      // Lista de fotos da cor (a primeira e a principal). Produtos antigos
+      // so tem imageUrl - viram uma lista de 1 foto.
+      const images = Array.isArray(v.images) && v.images.length ? v.images.slice() : v.imageUrl ? [v.imageUrl] : [];
       return {
         color: v.color || '',
         sizes: sizes.slice(),
         itemCodes: Object.assign({}, v.itemCodes || {}),
         productCodes: Object.fromEntries(sizes.map((s) => [s, product.code])),
-        imageUrl: v.imageUrl || null,
+        images,
+        imageUrl: images[0] || null,
       };
     });
   }
@@ -105,10 +109,14 @@
       const colorKey = normalizeColorKey(inc.color);
       let existing = target.find((t) => normalizeColorKey(t.color) === colorKey);
       if (!existing) {
-        existing = { color: inc.color, sizes: [], itemCodes: {}, productCodes: {}, imageUrl: null };
+        existing = { color: inc.color, sizes: [], itemCodes: {}, productCodes: {}, images: [], imageUrl: null };
         target.push(existing);
       }
-      if (!existing.imageUrl && inc.imageUrl) existing.imageUrl = inc.imageUrl;
+      // Fotos de produtos agrupados na mesma cor se somam na galeria (sem repetir).
+      inc.images.forEach((url) => {
+        if (!existing.images.includes(url)) existing.images.push(url);
+      });
+      existing.imageUrl = existing.images[0] || null;
       inc.sizes.forEach((s) => {
         if (existing.sizes.includes(s)) return;
         existing.sizes.push(s);
@@ -659,8 +667,14 @@
     let selectedIndex = 0;
 
     modalContent.innerHTML = `
-      <div class="modal-image">
-        <img data-field="image" src="${variants[0].imageUrl || '/img/sem-imagem.gif'}" alt="${escapeHtml(product.description)}" />
+      <div class="modal-gallery">
+        <div class="modal-image">
+          <img data-field="image" src="${variants[0].imageUrl || '/img/sem-imagem.gif'}" alt="${escapeHtml(product.description)}" />
+          <button type="button" class="gallery-nav gallery-prev" data-gallery="prev" aria-label="Foto anterior" hidden>‹</button>
+          <button type="button" class="gallery-nav gallery-next" data-gallery="next" aria-label="Proxima foto" hidden>›</button>
+          <span class="gallery-counter" data-field="gallery-counter" hidden></span>
+        </div>
+        <div class="gallery-thumbs" data-field="gallery-thumbs"></div>
       </div>
       <div class="modal-info">
         <h2>${escapeHtml(product.description)}</h2>
@@ -684,6 +698,75 @@
     const sizeSelectEl = modalContent.querySelector('[data-field="size-select"]');
     const codigoEl = modalContent.querySelector('[data-field="codigo"]');
     const colorNameEl = modalContent.querySelector('[data-field="color-name"]');
+    const thumbsEl = modalContent.querySelector('[data-field="gallery-thumbs"]');
+    const counterEl = modalContent.querySelector('[data-field="gallery-counter"]');
+    const prevBtn = modalContent.querySelector('[data-gallery="prev"]');
+    const nextBtn = modalContent.querySelector('[data-gallery="next"]');
+    const mainImageBox = modalContent.querySelector('.modal-image');
+
+    // -------- Galeria: varias fotos da cor escolhida --------
+    // Foto grande + miniaturas embaixo; setas, deslizar o dedo (celular) e
+    // as setas do teclado trocam a foto. Ao trocar de cor, a galeria passa a
+    // mostrar as fotos daquela cor, comecando pela principal.
+    let photoIndex = 0;
+
+    function currentPhotos() {
+      const v = variants[selectedIndex];
+      if (Array.isArray(v.images) && v.images.length) return v.images;
+      return v.imageUrl ? [v.imageUrl] : [];
+    }
+
+    function showPhoto(index) {
+      const photos = currentPhotos();
+      if (photos.length === 0) {
+        photoIndex = 0;
+        imageEl.src = '/img/sem-imagem.gif';
+      } else {
+        photoIndex = (index + photos.length) % photos.length;
+        imageEl.src = photos[photoIndex];
+      }
+      const many = photos.length > 1;
+      prevBtn.hidden = !many;
+      nextBtn.hidden = !many;
+      counterEl.hidden = !many;
+      counterEl.textContent = `${photoIndex + 1} / ${photos.length}`;
+      thumbsEl.querySelectorAll('.gallery-thumb').forEach((t, i) => t.classList.toggle('selected', i === photoIndex));
+    }
+
+    function renderGallery() {
+      const photos = currentPhotos();
+      thumbsEl.innerHTML = '';
+      thumbsEl.hidden = photos.length <= 1;
+      photos.forEach((url, i) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'gallery-thumb';
+        btn.setAttribute('aria-label', `Ver foto ${i + 1}`);
+        btn.innerHTML = `<img src="${escapeHtml(url)}" alt="" loading="lazy" />`;
+        btn.addEventListener('click', () => showPhoto(i));
+        thumbsEl.appendChild(btn);
+      });
+      showPhoto(0);
+    }
+
+    prevBtn.addEventListener('click', () => showPhoto(photoIndex - 1));
+    nextBtn.addEventListener('click', () => showPhoto(photoIndex + 1));
+
+    let touchStartX = null;
+    mainImageBox.addEventListener('touchstart', (e) => { touchStartX = e.touches[0].clientX; }, { passive: true });
+    mainImageBox.addEventListener('touchend', (e) => {
+      if (touchStartX === null) return;
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      touchStartX = null;
+      if (Math.abs(dx) > 40) showPhoto(photoIndex + (dx < 0 ? 1 : -1));
+    });
+
+    galleryKeyHandler = (e) => {
+      if (modal.hidden) return;
+      if (e.key === 'ArrowLeft') showPhoto(photoIndex - 1);
+      else if (e.key === 'ArrowRight') showPhoto(photoIndex + 1);
+      else if (e.key === 'Escape') closeModal();
+    };
 
     // Mostra o codigo do item cadastrado para a cor/tamanho escolhidos (o
     // mesmo que aparece em Produtos Cadastrados no admin) - atualiza sempre
@@ -698,13 +781,14 @@
     function selectVariant(index) {
       selectedIndex = index;
       const v = variants[index];
-      imageEl.src = v.imageUrl || '/img/sem-imagem.gif';
+      renderGallery();
       fillSizeSelect(sizeSelectEl, v.sizes, v.sizes[0]);
       renderSwatches(swatchesEl, variants, selectedIndex, selectVariant);
       updateColorName(colorNameEl, v);
       updateCodigo();
     }
 
+    renderGallery();
     fillSizeSelect(sizeSelectEl, variants[0].sizes, variants[0].sizes[0]);
     renderSwatches(swatchesEl, variants, selectedIndex, selectVariant);
     updateColorName(colorNameEl, variants[0]);
@@ -723,7 +807,15 @@
   function closeModal() {
     modal.hidden = true;
     modalContent.innerHTML = '';
+    galleryKeyHandler = null;
   }
+
+  // Teclado (setas/Esc) na galeria do modal - um unico listener global que
+  // repassa para a galeria aberta no momento.
+  let galleryKeyHandler = null;
+  document.addEventListener('keydown', (e) => {
+    if (galleryKeyHandler) galleryKeyHandler(e);
+  });
 
   modalClose.addEventListener('click', closeModal);
   modal.addEventListener('click', (e) => {

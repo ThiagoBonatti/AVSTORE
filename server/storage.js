@@ -19,7 +19,9 @@ const EXT_BY_MIME = {
 async function uploadProductImage(code, variantId, file) {
   const ext = path.extname(file.originalname || '').toLowerCase() || EXT_BY_MIME[file.mimetype] || '';
   const token = crypto.randomUUID();
-  const storagePath = `products/${code}-${variantId}-${Date.now()}${ext}`;
+  // O sufixo aleatorio garante um nome unico mesmo quando varias fotos da
+  // mesma cor sao enviadas no mesmo milissegundo.
+  const storagePath = `products/${code}-${variantId}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`;
   const blob = bucket.file(storagePath);
 
   await blob.save(file.buffer, {

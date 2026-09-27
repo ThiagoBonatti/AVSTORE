@@ -75,11 +75,16 @@
               <span class="item-codes-label">Codigo do item por tamanho <small>(opcional, usado para controle interno / codigo de barras)</small></span>
               <div class="item-codes-list" data-field="item-codes-list"></div>
             </div>
-            <label class="full">
-              Imagem desta cor <span data-field="image-hint">(obrigatoria)</span>
-              <input type="file" data-field="image" accept="image/png,image/jpeg,image/webp,image/gif" />
-              <img class="image-preview" data-field="image-preview" alt="Previa da imagem desta cor" />
-            </label>
+            <div class="full variant-images">
+              <span class="variant-images-label">
+                Fotos desta cor <small data-field="image-hint">(ao menos 1, ate 8 - a primeira e a principal)</small>
+              </span>
+              <div class="image-gallery" data-field="image-gallery"></div>
+              <label class="btn btn-ghost btn-sm add-images-btn">
+                + Adicionar fotos
+                <input type="file" data-field="image" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+              </label>
+            </div>
           </div>
         </template>
 
