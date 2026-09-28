@@ -67,6 +67,13 @@ function loadCredential() {
     });
   }
 
+  // 4) Rodando dentro do Google Cloud (Cloud Run define K_SERVICE): usa a
+  //    conta de servico do proprio servico, sem precisar de chave em arquivo
+  //    ou variavel de ambiente.
+  if (process.env.K_SERVICE) {
+    return applicationDefault();
+  }
+
   throw new Error(
     'Credenciais do Firebase nao encontradas. Configure GOOGLE_APPLICATION_CREDENTIALS, ' +
       'FIREBASE_SERVICE_ACCOUNT_JSON ou as variaveis FIREBASE_PROJECT_ID / FIREBASE_CLIENT_EMAIL / ' +
