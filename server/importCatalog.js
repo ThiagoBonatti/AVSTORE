@@ -30,6 +30,8 @@ const HEADER_ALIASES = {
   valorVenda: ['valor venda', 'valor de venda', 'preco venda', 'preço venda', 'preco de venda', 'preço de venda'],
 };
 
+const { toTitleCase, collapseSpaces } = require('./textFormat');
+
 function stripAccents(str) {
   return String(str || '').normalize('NFKD').replace(/[̀-ͯ]/g, '');
 }
@@ -43,21 +45,8 @@ function normalizeKey(str) {
     .trim();
 }
 
-function collapseSpaces(str) {
-  return String(str || '').replace(/\s+/g, ' ').trim();
-}
-
-// "MACACÃO CELINA FLARE" -> "Macacão Celina Flare". Puramente cosmetico
-// (o campo continua editavel na tela de revisao antes de confirmar).
-function toTitleCase(str) {
-  const s = collapseSpaces(str);
-  if (!s) return s;
-  return s
-    .toLowerCase()
-    .split(' ')
-    .map((word) => (word ? word.charAt(0).toLocaleUpperCase('pt-BR') + word.slice(1) : word))
-    .join(' ');
-}
+// collapseSpaces e toTitleCase ("MACACÃO CELINA FLARE" -> "Macacão Celina Flare")
+// vem de ./textFormat, compartilhado com o cadastro manual de produtos.
 
 // Gera um codigo de produto (ID do documento) a partir da descricao. So
 // precisa ser um ponto de partida razoavel: o admin pode editar antes de

@@ -6,6 +6,7 @@ const express = require('express');
 const authRoutes = require('./routes/auth');
 const productRoutes = require('./routes/products');
 const stockRoutes = require('./routes/stock');
+const { runPendingMigrations } = require('./migrations');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,4 +57,7 @@ app.listen(PORT, () => {
   console.log(`AVSTORE rodando em http://localhost:${PORT}`);
   console.log(`Loja:  http://localhost:${PORT}/`);
   console.log(`Admin: http://localhost:${PORT}/admin/login.html`);
+
+  // Ajustes de dados pendentes (rodam uma unica vez, em segundo plano).
+  runPendingMigrations();
 });

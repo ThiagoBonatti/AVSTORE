@@ -4,6 +4,7 @@ const { requireAuth } = require('../middleware/auth');
 const { upload } = require('../middleware/upload');
 const { uploadProductImage, deleteProductImage } = require('../storage');
 const { buildSearchKeywords, normalize } = require('../searchKeywords');
+const { toTitleCase } = require('../textFormat');
 
 const router = express.Router();
 const productsRef = db.collection('products');
@@ -378,7 +379,7 @@ router.post('/', requireAuth, upload.any(), async (req, res) => {
   if (errors.length) return res.status(400).json({ error: errors.join(' ') });
 
   const code = String(req.body.code).trim();
-  const description = req.body.description.trim();
+  const description = toTitleCase(req.body.description);
   const category = req.body.category.trim();
   const price = Number(req.body.price);
   const filesMap = filesByFieldName(req.files);
@@ -525,7 +526,7 @@ router.put('/:code', requireAuth, upload.any(), async (req, res) => {
 
     if (errors.length) return res.status(400).json({ error: errors.join(' ') });
 
-    const description = req.body.description !== undefined ? req.body.description.trim() : existing.description;
+    const description = req.body.description !== undefined ? toTitleCase(req.body.description) : existing.description;
     const category = req.body.category !== undefined ? req.body.category.trim() : existing.category;
     const price = req.body.price !== undefined ? Number(req.body.price) : existing.price;
 

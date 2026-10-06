@@ -4,6 +4,7 @@ const { db, FieldValue } = require('../firebase');
 const { requireAuth } = require('../middleware/auth');
 const { uploadSheet } = require('../middleware/uploadSheet');
 const { buildSearchKeywords } = require('../searchKeywords');
+const { toTitleCase } = require('../textFormat');
 const { parseWorkbookRows, buildImportPreview } = require('../importCatalog');
 
 const router = express.Router();
@@ -1096,7 +1097,7 @@ router.post('/import/commit', async (req, res) => {
   productsToCreate.forEach((p, i) => {
     const tempId = String((p && p.tempId) || '').trim();
     const code = String((p && p.code) || '').trim();
-    const description = String((p && p.description) || '').trim();
+    const description = toTitleCase((p && p.description) || '');
     const category = String((p && p.category) || '').trim();
     const price = Number(p && p.price);
     const variants = Array.isArray(p && p.variants) ? p.variants : [];
